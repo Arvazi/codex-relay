@@ -184,7 +184,7 @@ export function speedDisplayOptions(
   if (fastServiceTier) {
     options.push({
       label: "Fast",
-      subtitle: "1.5x speed, more usage",
+      subtitle: fastServiceTier.description?.trim() || "1.5x speed, more usage",
       value: fastServiceTier.id,
     });
   }

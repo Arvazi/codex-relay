@@ -3,36 +3,53 @@ import type { CodexModel, ReasoningEffort } from "codex-relay/api-schema";
 export const previewModels: CodexModel[] = [
   previewModel({
     defaultReasoningEffort: "medium",
-    description: "Most capable model for the hardest end-to-end work.",
-    displayName: "GPT-6 Astra",
-    efforts: ["low", "medium", "high", "xhigh", "max"],
+    description: "Frontier intelligence for the most demanding work.",
+    displayName: "GPT-6-Astra",
+    efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+    fastDescription: "2x speed, increased usage",
     id: "gpt-6-astra",
     isDefault: true,
   }),
   previewModel({
+    defaultReasoningEffort: "medium",
+    description: "Workhorse model for coding and everyday work.",
+    displayName: "GPT-6-Sol",
+    efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+    fastDescription: "1.5x speed",
+    id: "gpt-6-sol",
+  }),
+  previewModel({
+    defaultReasoningEffort: "medium",
+    description: "Fast and affordable model for easier tasks.",
+    displayName: "GPT-6-Luna",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    fastDescription: "1.5x speed",
+    id: "gpt-6-luna",
+  }),
+  previewModel({
     defaultReasoningEffort: "low",
-    description: "Latest frontier agentic coding model.",
+    description: "Older coding model for complex work.",
     displayName: "GPT-5.6-Sol",
     efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
     id: "gpt-5.6-sol",
   }),
   previewModel({
     defaultReasoningEffort: "medium",
-    description: "Balanced agentic coding model for everyday work.",
+    description: "Older balanced model for straightforward work.",
     displayName: "GPT-5.6-Terra",
     efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
     id: "gpt-5.6-terra",
   }),
   previewModel({
     defaultReasoningEffort: "medium",
-    description: "Fast and affordable agentic coding model.",
+    description: "Older fast and efficient model.",
     displayName: "GPT-5.6-Luna",
     efforts: ["low", "medium", "high", "xhigh", "max"],
     id: "gpt-5.6-luna",
   }),
   previewModel({
     defaultReasoningEffort: "medium",
-    description: "Previous-generation Codex model.",
+    description: "Legacy coding model.",
     displayName: "GPT-5.5",
     efforts: ["low", "medium", "high", "xhigh"],
     id: "gpt-5.5",
@@ -44,6 +61,7 @@ function previewModel({
   description,
   displayName,
   efforts,
+  fastDescription = "1.5x speed, increased usage",
   id,
   isDefault = false,
 }: {
@@ -51,6 +69,7 @@ function previewModel({
   description: string;
   displayName: string;
   efforts: ReasoningEffort[];
+  fastDescription?: string;
   id: string;
   isDefault?: boolean;
 }): CodexModel {
@@ -67,7 +86,7 @@ function previewModel({
     })),
     serviceTiers: [
       {
-        description: "1.5x speed, more usage",
+        description: fastDescription,
         id: "priority",
         name: "Fast",
       },
