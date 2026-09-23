@@ -179,6 +179,12 @@ describe("mobile model picker options", () => {
         value: "priority",
       },
     ]);
+    expect(
+      speedDisplayOptions({
+        ...models[0],
+        serviceTiers: [{ id: "priority", name: "Fast", description: "2x speed, increased usage" }],
+      }).at(-1),
+    ).toEqual({ label: "Fast", subtitle: "2x speed, increased usage", value: "priority" });
   });
 
   it("keeps custom model effort and speed controls usable", () => {

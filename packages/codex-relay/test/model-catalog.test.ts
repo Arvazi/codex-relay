@@ -15,18 +15,18 @@ const unusedCodex: CodexClient = {
 };
 
 describe("model catalog", () => {
-  it("returns GPT-6 Astra and GPT-5.6 models with their supported reasoning details", async () => {
+  it("returns the GPT-6 models with their supported reasoning details", async () => {
     const appServer = new CodexAppServerClient();
     const models = [
       model({
         id: "gpt-6-astra",
-        displayName: "GPT-6 Astra",
+        displayName: "GPT-6-Astra",
         defaultReasoningEffort: "medium",
         efforts: ["low", "medium", "high", "xhigh", "max"],
       }),
       model({
-        id: "gpt-5.6-sol",
-        displayName: "GPT-5.6-Sol",
+        id: "gpt-6-sol",
+        displayName: "GPT-6-Sol",
         defaultReasoningEffort: "low",
         efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
       }),
@@ -37,8 +37,8 @@ describe("model catalog", () => {
         efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
       }),
       model({
-        id: "gpt-5.6-luna",
-        displayName: "GPT-5.6-Luna",
+        id: "gpt-6-luna",
+        displayName: "GPT-6-Luna",
         defaultReasoningEffort: "medium",
         efforts: ["low", "medium", "high", "xhigh", "max", "future"],
       }),
@@ -69,7 +69,7 @@ describe("model catalog", () => {
       ],
     });
     expect(body.models[1]).toMatchObject({
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       isDefault: false,
       defaultReasoningEffort: "low",
       supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
@@ -83,7 +83,7 @@ describe("model catalog", () => {
       ],
     });
     expect(body.models[3]).toMatchObject({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "future"],
       reasoningEffortOptions: expect.arrayContaining([
         { reasoningEffort: "future", description: "future description" },
@@ -98,18 +98,18 @@ describe("model catalog", () => {
     expect(
       normalizeRuntimePreferencesForModels(body.models, {
         runtimeMode: "default",
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         reasoningEffort: "high",
       }),
-    ).toMatchObject({ model: "gpt-5.6-sol", reasoningEffort: "high" });
+    ).toMatchObject({ model: "gpt-6-sol", reasoningEffort: "high" });
   });
 
   it("keeps the host default when Astra is unavailable", async () => {
     const appServer = new CodexAppServerClient();
     vi.spyOn(appServer, "listModels").mockResolvedValue([
       model({
-        id: "gpt-5.6-sol",
-        displayName: "GPT-5.6-Sol",
+        id: "gpt-6-sol",
+        displayName: "GPT-6-Sol",
         defaultReasoningEffort: "low",
         efforts: ["low", "medium"],
       }),
@@ -121,10 +121,10 @@ describe("model catalog", () => {
     });
     const body = await (await app.request("/v1/models")).json();
     expect(body.models).toHaveLength(1);
-    expect(body.models[0]).toMatchObject({ model: "gpt-5.6-sol", isDefault: true });
+    expect(body.models[0]).toMatchObject({ model: "gpt-6-sol", isDefault: true });
   });
 
-  it("uses Astra when the host catalog cannot be loaded", async () => {
+  it("falls back to the GPT-6 lineup with Astra as default when the host catalog cannot be loaded", async () => {
     const appServer = new CodexAppServerClient();
     vi.spyOn(appServer, "listModels").mockRejectedValue(new Error("offline"));
     const app = createApp({
@@ -133,11 +133,30 @@ describe("model catalog", () => {
       workspacePath: "/tmp/codex-relay-model-catalog",
     });
     const body = await (await app.request("/v1/models")).json();
-    expect(body.models[0]).toMatchObject({
-      model: "gpt-6-astra",
-      displayName: "GPT-6 Astra",
-      isDefault: true,
-    });
+    expect(body.models).toMatchObject([
+      {
+        model: "gpt-6-astra",
+        displayName: "GPT-6-Astra",
+        isDefault: true,
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+        serviceTiers: [{ id: "priority", name: "Fast", description: "2x speed, increased usage" }],
+      },
+      {
+        model: "gpt-6-sol",
+        displayName: "GPT-6-Sol",
+        isDefault: false,
+        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+        serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+      },
+      {
+        model: "gpt-6-luna",
+        displayName: "GPT-6-Luna",
+        isDefault: false,
+        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+        serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+      },
+    ]);
   });
 });
 
@@ -155,7 +174,7 @@ function model({
   return {
     id,
     model: id,
-    isDefault: id === "gpt-5.6-sol",
+    isDefault: id === "gpt-6-sol",
     displayName,
     description: `${displayName} description`,
     defaultReasoningEffort,

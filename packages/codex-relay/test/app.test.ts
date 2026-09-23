@@ -1988,6 +1988,115 @@ describe("Codex Relay server routes", () => {
     expect(revertThread).not.toHaveBeenCalled();
   });
 
+  it("explains that legacy history cannot be rewound after Codex removed thread/rollback", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const now = Date.now() / 1000;
+    const beforeRewind = {
+      ...appServerHistoryThread({
+        id: "app-thread-legacy-unsupported",
+        name: "Legacy rewind",
+        turns: [
+          appServerTurn("turn-1", "First prompt", now),
+          appServerTurn("turn-2", "Second prompt", now + 10),
+        ],
+        workspacePath,
+      }),
+      historyMode: "legacy" as const,
+    };
+    const rollbackThread = vi.fn<() => Promise<unknown>>(async () => {
+      throw new Error(
+        "Invalid request: unknown variant `thread/rollback`, expected one of `initialize`, `thread/start`, `thread/revert`",
+      );
+    });
+    const revertThread = vi.fn<() => Promise<unknown>>();
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => beforeRewind),
+      revertThread,
+      rollbackThread,
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-legacy-unsupported/rollback", {
+      method: "POST",
+      body: JSON.stringify({ turnId: "turn-2" }),
+      headers: { "content-type": "application/json" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("rewind_unsupported");
+    expect(body.error.message).toContain("legacy history format");
+    expect(body.error.message).not.toContain("unknown variant");
+    expect(rollbackThread).toHaveBeenCalledOnce();
+    expect(revertThread).not.toHaveBeenCalled();
+  });
+
+  it("falls back to legacy rollback when the app-server does not know thread/revert", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const now = Date.now() / 1000;
+    const beforeRewind = {
+      ...appServerHistoryThread({
+        id: "app-thread-revert-missing",
+        name: "Rewind history",
+        turns: [
+          appServerTurn("turn-1", "First prompt", now),
+          appServerTurn("turn-2", "Second prompt", now + 10),
+        ],
+        workspacePath,
+      }),
+      historyMode: "paginated" as const,
+    };
+    const afterRewind = {
+      ...beforeRewind,
+      turns: [appServerTurn("turn-1", "First prompt", now)],
+    };
+    const rollbackThread = vi.fn<() => Promise<unknown>>(async () => afterRewind);
+    const revertThread = vi.fn<() => Promise<unknown>>(async () => {
+      throw new Error(
+        "Invalid request: unknown variant `thread/revert`, expected one of `initialize`, `thread/rollback`",
+      );
+    });
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => beforeRewind),
+      revertThread,
+      rollbackThread,
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-revert-missing/rollback", {
+      method: "POST",
+      body: JSON.stringify({ turnId: "turn-2" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(revertThread).toHaveBeenCalledOnce();
+    expect(rollbackThread).toHaveBeenCalledWith({
+      numTurns: 1,
+      threadId: "app-thread-revert-missing",
+    });
+  });
+
   it("serializes rewind with an app-server turn start", async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
     const now = Date.now() / 1000;
@@ -3248,6 +3357,65 @@ describe("Codex Relay server routes", () => {
       "ㅎㅇ",
       "안녕하세요",
     ]);
+  });
+
+  it("reads app-server user messages with images referenced by uploaded file id", async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "codex-relay-workspace-"));
+    const now = Date.now() / 1000;
+    const appServer = {
+      onNotification() {
+        return () => undefined;
+      },
+      onRequest() {
+        return () => undefined;
+      },
+      readThread: vi.fn<() => Promise<unknown>>(async () => ({
+        id: "app-thread-file-id-image",
+        createdAt: now,
+        cwd: workspacePath,
+        modelProvider: "openai",
+        name: "File id image history",
+        preview: "File id image history",
+        source: "app",
+        status: "idle",
+        turns: [
+          {
+            id: "turn-1",
+            completedAt: now,
+            items: [
+              {
+                id: "user-1",
+                content: [
+                  { text: "Compare these", text_elements: [], type: "text" },
+                  { fileId: "file_uploaded_image", type: "image" },
+                  { type: "image", url: "https://example.com/cat.png" },
+                ],
+                type: "userMessage",
+              },
+              { id: "assistant-1", text: "They match.", type: "agentMessage" },
+            ],
+            startedAt: now,
+            status: "completed",
+          },
+        ],
+        updatedAt: now,
+      })),
+    };
+    const app = createApp({
+      appServer: appServer as never,
+      codex: createMockCodex(),
+      workspacePath,
+    });
+
+    const response = await app.request("/v1/threads/app-thread-file-id-image");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.messages[0].content).toBe("Compare these\n\nAttached image 1\nAttached image 2");
+    expect(body.messages[0].details.attachments).toEqual([
+      { type: "image", url: "https://example.com/cat.png" },
+    ]);
+    expect(body.messages[1].content).toBe("They match.");
   });
 
   it("normalizes markdown skill mentions from app-server user message history", async () => {

@@ -16,31 +16,32 @@ function relayVersion(packageVersion: string) {
 }
 
 describe("relay version policy", () => {
-  it("warns when the connected relay is below the 1.5.0 minimum", () => {
-    const requiredVersion = "1.5.0";
-    const olderVersion = "1.4.14";
+  it("warns when the connected relay is below the 1.6.0 minimum", () => {
+    const requiredVersion = "1.6.0";
 
     expect(relayCompatibilityPolicy.packageVersion).toBe(requiredVersion);
     expect(relayUpdateCommand).toBe("npx codex-relay@latest");
-    expect(evaluateRelayVersion(relayVersion(olderVersion), undefined)).toMatchObject({
-      compatible: false,
-      current: olderVersion,
-      required: requiredVersion,
-    });
+    for (const olderVersion of ["1.4.14", "1.5.0", "1.5.3"]) {
+      expect(evaluateRelayVersion(relayVersion(olderVersion), undefined)).toMatchObject({
+        compatible: false,
+        current: olderVersion,
+        required: requiredVersion,
+      });
+    }
   });
 
   it("accepts the required release and newer same-major releases", () => {
-    for (const packageVersion of ["1.5.0", "1.5.1", "1.6.0"]) {
+    for (const packageVersion of ["1.6.0", "1.6.1", "1.7.0"]) {
       expect(evaluateRelayVersion(relayVersion(packageVersion), undefined)).toMatchObject({
         compatible: true,
         current: packageVersion,
-        required: "1.5.0",
+        required: "1.6.0",
       });
     }
   });
 
   it("rejects prereleases, unparseable versions, and unsupported major releases", () => {
-    for (const packageVersion of ["1.5.0-beta.1", "latest", "2.0.0"]) {
+    for (const packageVersion of ["1.6.0-beta.1", "latest", "2.0.0"]) {
       expect(evaluateRelayVersion(relayVersion(packageVersion), undefined)).toMatchObject({
         compatible: false,
         current: packageVersion,
@@ -52,7 +53,7 @@ describe("relay version policy", () => {
     expect(evaluateRelayVersion(undefined, new Error("offline"))).toMatchObject({
       compatible: false,
       current: "Unavailable",
-      required: "1.5.0",
+      required: "1.6.0",
     });
   });
 });

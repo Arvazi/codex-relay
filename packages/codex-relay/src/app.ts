@@ -1965,30 +1965,46 @@ export function createApp(options: AppOptions = {}) {
             );
           }
 
-          let rolledBackThread: AppServerThread;
-          if (
-            threadBeforeRewind.historyMode === "paginated" &&
-            typeof appServer.revertThread === "function"
-          ) {
-            try {
-              rolledBackThread = await appServer.revertThread({
-                beforeTurnId: parsed.data.turnId,
-                threadId,
-              });
-            } catch (error) {
-              if (!/method not found|unsupported|-32601/i.test(errorMessage(error))) {
-                throw error;
-              }
-              rolledBackThread = await appServer.rollbackThread({
-                threadId,
-                numTurns: turns.length - turnIndex,
-              });
-            }
-          } else {
-            rolledBackThread = await appServer.rollbackThread({
+          const rollbackThread = () =>
+            appServer.rollbackThread({
               threadId,
               numTurns: turns.length - turnIndex,
             });
+          let rolledBackThread: AppServerThread;
+          try {
+            if (
+              threadBeforeRewind.historyMode === "paginated" &&
+              typeof appServer.revertThread === "function"
+            ) {
+              try {
+                rolledBackThread = await appServer.revertThread({
+                  beforeTurnId: parsed.data.turnId,
+                  threadId,
+                });
+              } catch (error) {
+                if (!isMissingAppServerMethodError(error, "thread/revert")) {
+                  throw error;
+                }
+                rolledBackThread = await rollbackThread();
+              }
+            } else {
+              rolledBackThread = await rollbackThread();
+            }
+          } catch (error) {
+            // Codex 0.156 removed `thread/rollback`; `thread/revert` only accepts paginated history.
+            if (!isMissingAppServerMethodError(error, "thread/rollback")) {
+              throw error;
+            }
+            return secureJson(
+              c,
+              options.pairing,
+              secureSessionsByTokenHash,
+              apiError(
+                "rewind_unsupported",
+                "This chat uses Codex's legacy history format, which this Codex version can no longer rewind. Chats started after the update can be rewound.",
+              ),
+              409,
+            );
           }
           const threadWithTurns =
             rolledBackThread.turns === undefined
@@ -5625,6 +5641,10 @@ function appServerUserMessageDetails(item: Extract<AppServerThreadItem, { type: 
     (content): AppServerUserAttachmentDetail[] => {
       switch (content.type) {
         case "image":
+          // Uploaded images can be referenced by `fileId` only, which has no URL to preview.
+          if (!content.url) {
+            return [];
+          }
           if (content.url.startsWith("data:image/")) {
             const materialized = materializeDataUriImage(content.url);
             return materialized ? [materialized] : [];
@@ -7941,32 +7961,61 @@ function objectRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
+// Mirrors the GPT-6 lineup of the bundled Codex catalog for when the host catalog is unavailable.
 function fallbackModels(): AppServerModel[] {
+  const efforts = ["low", "medium", "high", "xhigh", "max"];
   return [
-    {
-      id: defaultCodexModel,
-      model: defaultCodexModel,
-      displayName: "GPT-6 Astra",
-      description: "Default Codex model",
+    fallbackModel({
+      description: "Frontier intelligence for the most demanding work.",
+      displayName: "GPT-6-Astra",
+      efforts: [...efforts, "ultra"],
+      fastDescription: "2x speed, increased usage",
       isDefault: true,
-      defaultReasoningEffort: "medium",
-      supportedReasoningEfforts: [
-        { reasoningEffort: "low" },
-        { reasoningEffort: "medium" },
-        { reasoningEffort: "high" },
-        { reasoningEffort: "xhigh" },
-        { reasoningEffort: "max" },
-      ],
-      additionalSpeedTiers: ["fast"],
-      serviceTiers: [
-        {
-          id: "priority",
-          name: "Fast",
-          description: "1.5x speed, increased usage",
-        },
-      ],
-    },
+      model: defaultCodexModel,
+    }),
+    fallbackModel({
+      description: "Workhorse model for coding and everyday work.",
+      displayName: "GPT-6-Sol",
+      efforts: [...efforts, "ultra"],
+      fastDescription: "1.5x speed",
+      model: "gpt-6-sol",
+    }),
+    fallbackModel({
+      description: "Fast and affordable model for easier tasks.",
+      displayName: "GPT-6-Luna",
+      efforts,
+      fastDescription: "1.5x speed",
+      model: "gpt-6-luna",
+    }),
   ];
+}
+
+function fallbackModel({
+  description,
+  displayName,
+  efforts,
+  fastDescription,
+  isDefault = false,
+  model,
+}: {
+  description: string;
+  displayName: string;
+  efforts: string[];
+  fastDescription: string;
+  isDefault?: boolean;
+  model: string;
+}): AppServerModel {
+  return {
+    id: model,
+    model,
+    displayName,
+    description,
+    isDefault,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
+    additionalSpeedTiers: ["fast"],
+    serviceTiers: [{ id: "priority", name: "Fast", description: fastDescription }],
+  };
 }
 
 function mapAppServerThreadState(status: unknown, turns?: AppServerTurn[]) {
@@ -9759,4 +9808,12 @@ function apiError(code: string, message: string, issues?: string[]): ErrorRespon
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Codex run failed.";
+}
+
+function isMissingAppServerMethodError(error: unknown, method: string) {
+  const message = errorMessage(error);
+  // Codex rejects unknown methods as an invalid request naming the unknown variant.
+  return (
+    /method not found|-32601/i.test(message) || message.includes(`unknown variant \`${method}\``)
+  );
 }

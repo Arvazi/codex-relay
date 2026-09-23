@@ -81,7 +81,7 @@ export type AppServerTextElement = {
 
 export type AppServerUserInput =
   | { type: "text"; text: string; text_elements: AppServerTextElement[] }
-  | { type: "image"; url: string }
+  | { type: "image"; url?: string; fileId?: string }
   | { type: "localImage"; path: string }
   | {
       type: "document" | "file" | "localFile";
@@ -418,6 +418,7 @@ export class CodexAppServerClient {
     await this.request("thread/name/set", params);
   }
 
+  // Legacy-history rewind for Codex app-servers older than 0.156, which removed `thread/rollback`.
   async rollbackThread(params: AppServerThreadRollbackParams) {
     const response = await this.request<{ thread: AppServerThread }>("thread/rollback", params);
     return response.thread;
