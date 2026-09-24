@@ -506,7 +506,6 @@ export function createApp(options: AppOptions = {}) {
       !options.pairing ||
       c.req.method === "OPTIONS" ||
       c.req.path === apiPaths.version ||
-      c.req.path.startsWith(`${apiPaths.imageAttachments}/`) ||
       c.req.path === apiPaths.sessionsClear ||
       c.req.path.startsWith(apiPaths.pair)
     ) {
@@ -5345,14 +5344,16 @@ async function parseRequestJson<T extends z.ZodType>(
   if (secureSession) {
     const envelope = EncryptedPayloadSchema.safeParse(payload);
     if (!envelope.success) {
-      return schema.safeParse({ __invalidEncryptedPayload: true });
+      // Reject at the encryption boundary. Optional request schemas may accept
+      // arbitrary objects after stripping their unknown properties.
+      return z.never().safeParse(payload);
     }
 
     try {
       payload = JSON.parse(decryptFromMobile(secureSession.session, envelope.data));
       await secureSession.persist();
     } catch {
-      payload = { __invalidEncryptedPayload: true };
+      return z.never().safeParse(payload);
     }
   }
 

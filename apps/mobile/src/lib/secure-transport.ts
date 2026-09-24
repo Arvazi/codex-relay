@@ -120,8 +120,11 @@ export function encryptRequestPayload(payload: unknown) {
 export function decryptResponsePayload(payload: unknown) {
   const session = readSecureSession();
   const envelope = EncryptedPayloadSchema.safeParse(payload);
-  if (!session || !envelope.success) {
+  if (!session) {
     return payload;
+  }
+  if (!envelope.success) {
+    throw new Error("Server returned an unencrypted response for a secure session.");
   }
   if (
     envelope.data.sender !== "server" ||
