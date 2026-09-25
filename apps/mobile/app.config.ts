@@ -1,6 +1,8 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 import { config } from "dotenv";
 
+import withIosSceneLifecycle from "./plugins/with-ios-scene.js";
+
 config({ path: ".env.hotupdater", quiet: true });
 
 const hotUpdaterApiKey =
@@ -17,7 +19,8 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     userInterfaceStyle: "automatic",
     ios: {
       icon: "./assets/images/icon.png",
-      bundleIdentifier: "com.gronstudio.codexrelay",
+      appleTeamId: process.env.EXPO_APPLE_TEAM_ID,
+      bundleIdentifier: process.env.EXPO_IOS_BUNDLE_IDENTIFIER || "com.gronstudio.codexrelay",
       deploymentTarget: "16.4",
       supportsTablet: true,
       infoPlist: {
@@ -114,6 +117,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
           },
         },
       ],
+      withIosSceneLifecycle,
     ],
     experiments: {
       typedRoutes: true,
