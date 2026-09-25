@@ -1,3 +1,5 @@
+> **Ari fork:** Start with [owned infrastructure and Mac/iPhone setup](infra/README.md). Run the compiled server from this fork, not the upstream npm command shown in the historical documentation below. [Security status and remaining work](docs/security/fork-foundation.md). This branch has not yet been deployed or validated on an iPhone.
+
 # Codex Relay
 
 <p align="center">

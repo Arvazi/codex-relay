@@ -1,3 +1,4 @@
+import { ownedOtaEnabled } from "@/lib/owned-services";
 import { HotUpdater } from "@hot-updater/react-native";
 import { useSelector } from "@legendapp/state/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,6 +123,10 @@ export default function SettingsScreen() {
         : "Restart";
 
   useEffect(() => {
+    if (!ownedOtaEnabled) {
+      setAppUpdate({ status: "disabled", updateInfo: null });
+      return;
+    }
     let isActive = true;
 
     async function checkForAppUpdate() {
@@ -645,6 +650,7 @@ export default function SettingsScreen() {
                 </View>
                 <ThemedText type="code" themeColor="textSecondary" style={styles.versionText}>
                   Version {releaseVersionLabel}
+                  {appUpdate.status === "disabled" ? " · updates via Xcode" : null}
                   {appUpdate.status === "checking" ? " · checking" : null}
                   {appUpdate.status === "current" ? " · current" : null}
                   {appUpdate.status === "downloading" ? " · downloading" : null}
@@ -987,7 +993,7 @@ function appliedHotUpdateBundleSuffix() {
 type AppUpdateInfo = Awaited<ReturnType<typeof HotUpdater.checkForUpdate>>;
 
 type AppUpdateState = {
-  status: "checking" | "current" | "downloading" | "ready" | "updating" | "error";
+  status: "disabled" | "checking" | "current" | "downloading" | "ready" | "updating" | "error";
   updateInfo: AppUpdateInfo;
 };
 

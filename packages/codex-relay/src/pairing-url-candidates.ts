@@ -33,7 +33,7 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
     throw new Error("Pairing QR requires at least one server URL.");
   }
 
-  const url = new URL("codex-relay://pair");
+  const url = new URL("ari-relay://pair");
   url.searchParams.set("serverUrl", primaryServerUrl);
   url.searchParams.set("serverPublicKey", details.serverPublicKey);
   const hosts = compactCandidateHosts(primaryServerUrl, details.serverUrls);
@@ -43,7 +43,27 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   return url.toString();
 }
 
-export function getConnectUrlCandidates(details: { listenUrl: string; port: number }) {
+export function getConnectUrlCandidates(details: {
+  listenUrl: string;
+  port: number;
+  publicUrl?: string;
+}) {
+  if (details.publicUrl !== undefined) {
+    const url = new URL(details.publicUrl);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(
+        "CODEX_RELAY_PUBLIC_URL must be an HTTPS origin without credentials, path, query or fragment.",
+      );
+    }
+    return [{ label: "Private relay", url: url.origin }];
+  }
   return dedupeCandidates([
     ...tailscaleConnectUrlCandidates(details.port),
     ...localNetworkConnectUrlCandidates(details.port),

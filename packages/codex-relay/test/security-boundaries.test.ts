@@ -6,6 +6,7 @@ import { createContext, runInContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 
+import type { CodexClient, CodexThread } from "../src/codex.js";
 import { createApp } from "../src/app.js";
 import { EncryptedPayloadSchema } from "../src/api-schema.js";
 import type { PairingSessionStore } from "../src/pairing-store.js";
@@ -37,13 +38,13 @@ function fixture() {
     >(async (token) => (token === "test-token" ? { secureSession } : undefined)),
     updateSecureSession: vi.fn<() => Promise<void>>(async () => {}),
   } as unknown as PairingSessionStore;
-  const startThread = vi.fn<() => { id: string; run: () => void }>(() => ({
+  const startThread = vi.fn<CodexClient["startThread"]>(() => ({
     id: "test-thread",
-    run: vi.fn<() => void>(),
+    run: vi.fn<CodexThread["run"]>(async () => ({})),
   }));
   const app = createApp({
     appServer: null,
-    codex: { startThread, resumeThread: vi.fn<() => void>() },
+    codex: { startThread, resumeThread: vi.fn<CodexClient["resumeThread"]>() },
     pairing: {
       approvalSecret: "test-approval-secret",
       serverIdentity: createServerIdentity(),

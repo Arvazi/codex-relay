@@ -54,3 +54,10 @@ apps/mobile/android/
 # hot-updater
 .hot-updater/output
 .codex/hot-updater-rc14/
+
+# Fork credentials and local deployment settings
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.local.env

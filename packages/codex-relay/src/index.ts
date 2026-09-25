@@ -149,7 +149,11 @@ serve(
   (info) => {
     activePort = info.port;
     const listenUrl = `http://${info.address}:${info.port}`;
-    const connectUrlCandidates = getConnectUrlCandidates({ listenUrl, port: info.port });
+    const connectUrlCandidates = getConnectUrlCandidates({
+      listenUrl,
+      port: info.port,
+      publicUrl: process.env.CODEX_RELAY_PUBLIC_URL,
+    });
     const connectUrl = connectUrlCandidates[0]?.url ?? listenUrl;
     const connectUrls = connectUrlCandidates.map((candidate) => candidate.url);
     const pairingPayload = createPairingQrPayload({

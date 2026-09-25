@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPairingQrPayload,
+  getConnectUrlCandidates,
   getConnectUrlGuidance,
   normalizeUrl,
 } from "../src/pairing-url-candidates.js";
@@ -14,7 +15,7 @@ describe("pairing URL candidates", () => {
     });
 
     const parsed = new URL(payload);
-    expect(parsed.protocol).toBe("codex-relay:");
+    expect(parsed.protocol).toBe("ari-relay:");
     expect(parsed.hostname).toBe("pair");
     expect(parsed.searchParams.get("serverUrl")).toBe("http://100.64.0.10:8787");
     expect(parsed.searchParams.get("serverPublicKey")).toBe("server-public-key");
@@ -70,5 +71,29 @@ describe("pairing URL candidates", () => {
   it("warns when the mobile URL is only reachable locally", () => {
     expect(getConnectUrlGuidance("http://127.0.0.1:8787")).toContain("only reachable");
     expect(getConnectUrlGuidance("http://0.0.0.0:8787")).toContain("only reachable");
+  });
+});
+
+describe("private HTTPS deployment", () => {
+  it("advertises only the configured HTTPS origin without LAN downgrade candidates", () => {
+    expect(
+      getConnectUrlCandidates({
+        listenUrl: "http://127.0.0.1:8787",
+        port: 8787,
+        publicUrl: "https://relay.example.com/",
+      }),
+    ).toEqual([{ label: "Private relay", url: "https://relay.example.com" }]);
+  });
+  it.each([
+    "http://relay.example.com",
+    "https://user:password@relay.example.com",
+    "https://relay.example.com/path",
+    "https://relay.example.com/?key=value",
+    "https://relay.example.com/#fragment",
+    "",
+  ])("rejects unsafe public URL %s", (publicUrl) => {
+    expect(() =>
+      getConnectUrlCandidates({ listenUrl: "http://127.0.0.1:8787", port: 8787, publicUrl }),
+    ).toThrow(/Invalid URL|HTTPS origin/);
   });
 });

@@ -22,7 +22,7 @@ function pairingUrlFromParams(params: Record<string, string | string[]>) {
     return null;
   }
 
-  const pairingUrl = new URL("codex-relay://pair");
+  const pairingUrl = new URL("ari-relay://pair");
   pairingUrl.searchParams.set("serverUrl", serverUrl);
   pairingUrl.searchParams.set("serverPublicKey", serverPublicKey.replaceAll(" ", "+"));
   for (const key of ["h", "serverHosts", "serverUrls"]) {

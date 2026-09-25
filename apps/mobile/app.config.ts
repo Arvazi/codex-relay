@@ -7,22 +7,32 @@ const hotUpdaterApiKey =
   process.env.EXPO_PUBLIC_HOT_UPDATER_API_KEY?.trim() || process.env.HOT_UPDATER_API_KEY?.trim();
 
 export default function appConfig(_context: ConfigContext): ExpoConfig {
+  const otaEnabled = process.env.EXPO_PUBLIC_RELAY_OTA_ENABLED === "1";
+  const otaPublicKeyPath = process.env.RELAY_OTA_PUBLIC_KEY_PATH;
+  if (otaEnabled && !otaPublicKeyPath) throw new Error("Own OTA signing public key is required.");
+  if (otaEnabled) {
+    const endpoint = new URL(process.env.EXPO_PUBLIC_HOT_UPDATER_BASE_URL ?? "");
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) {
+      throw new Error("Own OTA endpoint must use HTTPS without URL credentials.");
+    }
+  }
+  const expoProjectId = process.env.RELAY_EXPO_PROJECT_ID?.trim();
   return {
-    name: "Codex Relay",
-    slug: "codex-relay",
+    name: "Ari Relay",
+    slug: "ari-relay",
     version: "1.5.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "codex-relay",
+    scheme: "ari-relay",
     userInterfaceStyle: "automatic",
     ios: {
       icon: "./assets/images/icon.png",
-      bundleIdentifier: "com.gronstudio.codexrelay",
+      bundleIdentifier: "de.silkrock.arirelay",
       deploymentTarget: "16.4",
       supportsTablet: true,
       infoPlist: {
         NSAppTransportSecurity: {
-          NSAllowsArbitraryLoads: true,
+          NSAllowsArbitraryLoads: false,
           NSAllowsLocalNetworking: true,
         },
         ITSAppUsesNonExemptEncryption: false,
@@ -43,7 +53,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
       predictiveBackGestureEnabled: false,
-      package: "com.gronstudio.codexrelay",
+      package: "de.silkrock.arirelay",
       permissions: ["android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"],
     },
     web: {
@@ -93,13 +103,14 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       "expo-notifications",
       "expo-system-ui",
       "expo-web-browser",
-      [
-        "@hot-updater/expo",
-        {
-          channel: "production",
-          publicKeyPath: "./keys/public-key.pem",
-        },
-      ],
+      ...(otaEnabled
+        ? [
+            ["@hot-updater/expo", { channel: "production", publicKeyPath: otaPublicKeyPath }] as [
+              string,
+              Record<string, unknown>,
+            ],
+          ]
+        : []),
       [
         "expo-secure-store",
         {
@@ -110,7 +121,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
         "expo-build-properties",
         {
           android: {
-            usesCleartextTraffic: true,
+            usesCleartextTraffic: false,
           },
         },
       ],
@@ -122,9 +133,7 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     extra: {
       hotUpdaterApiKey,
       router: {},
-      eas: {
-        projectId: "6659e28f-2ac7-4055-8f56-7b4ca5e65847",
-      },
+      ...(expoProjectId ? { eas: { projectId: expoProjectId } } : {}),
     },
   };
 }

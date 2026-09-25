@@ -39,7 +39,7 @@ export function configurePushNotificationPresentation() {
 }
 
 export function supportsPushNotifications() {
-  return Platform.OS === "android" || Platform.OS === "ios";
+  return Boolean(expoProjectId()) && (Platform.OS === "android" || Platform.OS === "ios");
 }
 
 export async function getExpoPushToken() {

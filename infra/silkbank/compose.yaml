@@ -1,0 +1,20 @@
+name: ari-relay
+services:
+  gateway:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    tmpfs:
+      - /data
+      - /config
+      - /tmp
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:3048/gateway-health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3

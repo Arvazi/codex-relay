@@ -438,7 +438,7 @@ function parsePairingQrPayload(payload: unknown): PairingQrPayload {
   } catch {
     throw new PairingQrPayloadError("Scan the pairing QR from the Codex Relay server.");
   }
-  if (parsed.protocol !== "codex-relay:" || parsed.hostname !== "pair") {
+  if (parsed.protocol !== "ari-relay:" || parsed.hostname !== "pair") {
     throw new PairingQrPayloadError("Scan the pairing QR from the Codex Relay server.");
   }
 

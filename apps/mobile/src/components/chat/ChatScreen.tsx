@@ -1276,7 +1276,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     async (url: string | null) => {
       const pairingUrl = url?.trim();
       if (
-        !pairingUrl?.startsWith("codex-relay://pair") ||
+        !pairingUrl?.startsWith("ari-relay://pair") ||
         (pairingUrl === lastHandledPairingUrl.current && hasCodexRelaySession()) ||
         isHandlingPairingLink.current
       ) {

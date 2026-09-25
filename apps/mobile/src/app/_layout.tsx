@@ -1,3 +1,4 @@
+import { ownedOtaEnabled } from "@/lib/owned-services";
 import "@/global.css";
 import "expo-dev-client";
 import "react-native-gesture-handler";
@@ -79,6 +80,7 @@ TextInputWithDefaults.defaultProps = {
 };
 
 async function checkForLaunchUpdate() {
+  if (!ownedOtaEnabled) return;
   addHotUpdaterLog(
     "info",
     "OTA launch check started",
@@ -138,6 +140,7 @@ function TabLayout() {
   }, [fontsLoaded]);
 
   useEffect(() => {
+    if (!ownedOtaEnabled) return;
     const unsubscribeProgress = HotUpdater.addListener("onProgress", (event) => {
       addHotUpdaterLog("info", "OTA download progress", formatHotUpdaterProgress(event));
     });
@@ -243,10 +246,10 @@ const hotUpdaterApiKey =
     ? Constants.expoConfig.extra.hotUpdaterApiKey.trim()
     : undefined);
 
-if (hotUpdaterBaseUrl) {
+if (ownedOtaEnabled) {
   HotUpdater.init({
-    insights: true,
-    baseURL: hotUpdaterBaseUrl,
+    insights: false,
+    baseURL: hotUpdaterBaseUrl!,
     requestHeaders: hotUpdaterApiKey ? { "x-api-key": hotUpdaterApiKey } : undefined,
   });
 }

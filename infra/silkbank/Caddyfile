@@ -1,0 +1,12 @@
+{
+	admin off
+	auto_https off
+}
+http://:3048 {
+	bind 127.0.0.1
+	respond /gateway-health "ok" 200
+	# Port 18787 is bound on NAS loopback by the Mac's reverse SSH tunnel.
+	reverse_proxy 127.0.0.1:18787 {
+		flush_interval -1
+	}
+}

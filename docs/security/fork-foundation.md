@@ -4,7 +4,7 @@ Upstream: https://github.com/gronxb/codex-relay
 Reviewed baseline: 57735a80a5fddcc78aaf887db2ea3a0f2999d92e.
 
 This is an initial patch, not a completed security audit or production-ready fork.
-No remote fork, deployment, signing identity, or infrastructure resources have been created.
+The remote fork is https://github.com/Arvazi/codex-relay, branch `arvazi/security-foundation`. A SilkBank gateway and Mac/Xcode setup are prepared under `infra/`. No live NAS deployment or iPhone installation has been performed.
 
 ## Changes
 
@@ -15,12 +15,11 @@ No remote fork, deployment, signing identity, or infrastructure resources have b
 
 ## Verification
 
-Targeted Vitest run: 143 tests passed across the application and security-boundaries suites.
-The new regression suite alone contains ten tests. Its initial run against unchanged upstream exposed six failures; the fixed code passes all ten. A terminal side-effect assertion was subsequently strengthened.
-Oxfmt and Oxlint on the changed TypeScript files completed without warnings.
-Full suite attempted: 236 passed, seven failed, and 19 of 35 test files failed overall (including files that could not load). Missing mobile/workspace dependencies and tsx, unsupported Unix socket operations, and socket timeouts prevent a clean full run in this environment.
-Typecheck attempted and failed, including unresolved mobile/workspace dependencies and downstream implicit-any errors. No type errors were reported for the changed server app or new regression file in that run.
-Dependencies were installed in a temporary server-only npm environment, not from a complete frozen pnpm workspace installation. Native iOS build and device validation have not been performed.
+After a frozen-lockfile workspace installation, the server build and complete workspace typecheck pass. Repository lint and formatting pass without warnings.
+Full Vitest run: 344 passed, six failed, four skipped (35 files). The remaining failures are in app-server Unix-socket startup/reconnection tests, with EPERM and timeouts in this environment. Do not report a fully green suite.
+The application/security-boundary/HTTPS URL suites pass. The initial unpatched boundary suite exposed six failures; all ten boundary tests pass after the fixes. Seven additional tests cover the explicit HTTPS origin and rejected URL forms.
+Expo's generated public configuration was checked for the owned bundle identifier, absent upstream EAS project, disabled OTA plugin, and disabled arbitrary cleartext access. Caddy 2.11.4 validates the gateway configuration, and bash syntax checks pass for all deployment scripts. The Docker container and iOS app have not been executed here.
+Dependencies were installed with pnpm 11.19.0 and the existing frozen lockfile; the root manifest specifies pnpm 12.4.2. Verify with that exact version on the Mac/CI as well.
 
 ## Remaining security work
 
@@ -31,9 +30,9 @@ Dependencies were installed in a temporary server-only npm environment, not from
 - Replace upstream update/push/deployment services with resources owned by the user. Preserve update signature verification and use independent signing keys.
 - Test error handling and image loading in the real mobile app after these boundary changes.
 
-## Infrastructure dependency
+## Infrastructure status
 
-User requested the arical repository as the infrastructure model, possibly silkrockgmbh/arical. The connector authenticates as Arvazi, but cannot read that repository and lists no repositories for silkrockgmbh. A GitHub 404 does not establish that the repository does not exist.
-
-Once access is available, inspect arical's actual deployment definitions, environments, secrets references and CI before selecting services or provisioning anything. Do not copy secret values or assume the upstream Cloudflare/Expo model matches arical.
-Then create the authorized fork in the intended user/organization, apply this commit, adapt infrastructure, complete the security work, and validate the macOS server and Xcode device build. Never deploy this checkpoint as a completed hardening effort.
+Inspected `Arvazi/ari-cal` using GitHub CLI authenticated as Arvazi. Adapted its dedicated Compose/loopback/DSM model for a Mac-hosted Relay behind an outbound reverse SSH tunnel. See `infra/README.md` for installation, trust boundaries, acceptance and rollback.
+The upstream Expo project and store submission identifier are removed from this build. OTA and insights are disabled by default, and an owned signing key path is required to enable OTA. Push registration requires an explicitly supplied owned Expo project. Self-hosted OTA and direct APNs integration remain unimplemented; native updates use Xcode initially.
+GitHub Actions are disabled on the fork to prevent the inherited release workflow from publishing against upstream services. Establish owned release automation before re-enabling Actions.
+Live setup remains blocked: `silkbank.synology.me` does not resolve in this environment and there is no established NAS SSH session or Mac/Xcode access. Do not request secrets in chat or attempt to retrieve existing GitHub secret values. No ari-cal production service was changed.
