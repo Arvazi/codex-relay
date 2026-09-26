@@ -127,6 +127,9 @@ function serverUrlCandidateLabel(url: string) {
     if (host.endsWith(".ts.net") || host.endsWith(".beta.tailscale.net")) {
       return "Tailscale DNS";
     }
+    if (host.endsWith(".trycloudflare.com")) {
+      return "Internet";
+    }
     if (isCarrierGradePrivateIPv4Host(host)) {
       return "Tailscale IP";
     }

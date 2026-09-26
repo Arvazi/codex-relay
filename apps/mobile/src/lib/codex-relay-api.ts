@@ -7,6 +7,7 @@ import {
   ArchiveThreadResponseSchema,
   CheckoutWorkspaceBranchRequestSchema,
   CommitPushWorkspaceRequestSchema,
+  ConnectUrlsResponseSchema,
   CreateThreadResponseSchema,
   InterruptThreadRunResponseSchema,
   ImageAttachmentUploadResponseSchema,
@@ -126,6 +127,10 @@ import {
   type CodexRelayServerUrlCandidate,
 } from "./codex-relay-server-url-storage";
 
+const bundledRemoteServerUrls = [
+  process.env.EXPO_PUBLIC_CODEX_RELAY_REMOTE_URL?.trim() || "http://100.124.136.113:8787",
+  "http://arian-m4-pro-hardening.taila8c1b5.ts.net:8787",
+];
 const skillsPath = "/v1/skills";
 const skillsRequestTimeoutMs = 8000;
 const clientSessionIdStorageKey = "codex-relay.client-session-id";
@@ -347,7 +352,7 @@ async function waitForPairingApproval(serverUrl: string, approvalCode: string) {
 }
 
 async function fetchWithNetworkContext(url: string, init?: NetworkRequestInit) {
-  if (isLocalhostUrl(url)) {
+  if (isLocalhostUrl(url) || isPublicHttpsUrl(url) || isTailscaleRoutedUrl(url)) {
     try {
       return await requestWithNetworkTimeout(fetch(url, init), init?.timeoutMs);
     } catch (error) {
@@ -368,6 +373,39 @@ async function fetchWithNetworkContext(url: string, init?: NetworkRequestInit) {
     throw new Error(
       `Network request failed via ${transport} for ${url}: ${errorMessage(error, "network error")}`,
     );
+  }
+}
+
+function isTailscaleRoutedUrl(url: string) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith(".ts.net") ||
+      host.endsWith(".beta.tailscale.net") ||
+      isCarrierGradePrivateIPv4Host(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isPublicHttpsUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    return !(
+      host.endsWith(".local") ||
+      host.endsWith(".ts.net") ||
+      host.endsWith(".beta.tailscale.net") ||
+      isPrivateIPv4Host(host) ||
+      isCarrierGradePrivateIPv4Host(host) ||
+      isLocalIPv6Host(host)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -563,7 +601,25 @@ export async function unregisterPushNotifications(): Promise<PushNotificationSet
 }
 
 export async function listThreads(): Promise<ListThreadsResponse> {
-  return request(apiPaths.threads, undefined, ListThreadsResponseSchema.parse);
+  const response = await request(apiPaths.threads, undefined, ListThreadsResponseSchema.parse);
+  void refreshConnectUrls();
+  return response;
+}
+
+export async function refreshConnectUrls() {
+  try {
+    const response = await request(
+      apiPaths.connectUrls,
+      undefined,
+      ConnectUrlsResponseSchema.parse,
+    );
+    saveCodexRelayServerUrlCandidates([
+      getCodexRelayServerUrl(),
+      ...response.urls.map((candidate) => candidate.url),
+    ]);
+  } catch {
+    // The current address can keep working when the internet address is not ready yet.
+  }
 }
 
 export async function archiveThread(threadId: string): Promise<ArchiveThreadResponse> {
@@ -1262,6 +1318,22 @@ export async function resolveApproval(
   }
 }
 
+function preferredServerUrls() {
+  const urls = dedupeServerUrls([
+    ...bundledRemoteServerUrls,
+    getCodexRelayServerUrl(),
+    ...getCodexRelayServerUrlCandidates().map((candidate) => candidate.url),
+  ]);
+  return [
+    ...urls.filter((url) => isAwayFriendlyServerUrl(url)),
+    ...urls.filter((url) => !isAwayFriendlyServerUrl(url)),
+  ];
+}
+
+function isAwayFriendlyServerUrl(url: string) {
+  return isTailscaleRoutedUrl(url) || isPublicHttpsUrl(url);
+}
+
 async function request<T>(
   path: string,
   init: RequestInit | undefined,
@@ -1269,19 +1341,36 @@ async function request<T>(
   options?: { jsonContentType?: boolean },
 ) {
   const headers = requestHeaders(init?.headers, options);
-  const serverRequestUrl = `${getCodexRelayServerUrl()}${path}`;
-  const response = await fetchWithNetworkContext(serverRequestUrl, {
-    ...init,
-    headers,
-  });
-  const payload = decryptResponsePayload(await response.json().catch(() => undefined));
+  const urls = preferredServerUrls();
+  let lastError: unknown;
 
-  if (!response.ok) {
-    const message = errorMessage(payload, `Codex Relay server returned ${response.status}`);
-    throw new CodexRelayApiError(message, response.status, errorCode(payload));
+  for (const serverUrl of urls) {
+    try {
+      const response = await fetchWithNetworkContext(`${serverUrl}${path}`, {
+        ...init,
+        headers,
+        timeoutMs: 8000,
+      });
+      const payload = decryptResponsePayload(await response.json().catch(() => undefined));
+
+      if (!response.ok) {
+        const message = errorMessage(payload, `Codex Relay server returned ${response.status}`);
+        throw new CodexRelayApiError(message, response.status, errorCode(payload));
+      }
+
+      if (serverUrl !== getCodexRelayServerUrl()) {
+        setCodexRelayServerUrl(serverUrl);
+      }
+      return parse(payload);
+    } catch (error) {
+      if (error instanceof CodexRelayApiError) {
+        throw error;
+      }
+      lastError = error;
+    }
   }
 
-  return parse(payload);
+  throw lastError instanceof Error ? lastError : new Error("Codex Relay server is unreachable.");
 }
 
 function requestHeaders(

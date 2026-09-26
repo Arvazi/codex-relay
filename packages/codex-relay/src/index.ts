@@ -19,6 +19,11 @@ import {
   getConnectUrlGuidance,
   type ConnectUrlCandidate,
 } from "./pairing-url-candidates.js";
+import {
+  advertisedConnectUrls,
+  registerLocalConnectUrls,
+  startPublicReachability,
+} from "./public-reachability.js";
 import { createTursoPairingSessionStore } from "./pairing-store.js";
 import { createTerminalPairingApprover } from "./terminal-pairing.js";
 import { codexRelayDataPath, legacyCodexRelayDataPath } from "./paths.js";
@@ -149,7 +154,27 @@ serve(
   (info) => {
     activePort = info.port;
     const listenUrl = `http://${info.address}:${info.port}`;
-    const connectUrlCandidates = getConnectUrlCandidates({ listenUrl, port: info.port });
+    registerLocalConnectUrls(() =>
+      getConnectUrlCandidates({ listenUrl, port: info.port }),
+    );
+    startPublicReachability(info.port, (message) => {
+      console.log(`${color.prompt("›")} ${message}`);
+      const nextCandidates = advertisedConnectUrls();
+      const nextConnectUrl = nextCandidates[0]?.url ?? listenUrl;
+      const nextPayload = createPairingQrPayload({
+        serverPublicKey: serverIdentity.publicKey,
+        serverUrls: nextCandidates.map((candidate) => candidate.url),
+      });
+      void writeServerState({
+        connectUrl: nextConnectUrl,
+        connectUrlCandidates: nextCandidates,
+        host: hostname,
+        listenUrl,
+        pairingPayload: nextPayload,
+        port: info.port,
+      });
+    });
+    const connectUrlCandidates = advertisedConnectUrls();
     const connectUrl = connectUrlCandidates[0]?.url ?? listenUrl;
     const connectUrls = connectUrlCandidates.map((candidate) => candidate.url);
     const pairingPayload = createPairingQrPayload({

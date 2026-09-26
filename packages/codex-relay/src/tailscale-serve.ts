@@ -1,6 +1,8 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { tailscaleArgs } from "./tailscale-cli.js";
+
 export type ExecFileResult = {
   readonly stderr: string;
   readonly stdout: string;
@@ -116,7 +118,7 @@ async function defaultExecFile(
   args: readonly string[],
   options: ExecFileOptions,
 ): Promise<ExecFileResult> {
-  const result = await execFileAsync(file, [...args], options);
+  const result = await execFileAsync(file, tailscaleArgs(args), options);
   return {
     stderr: result.stderr,
     stdout: result.stdout,

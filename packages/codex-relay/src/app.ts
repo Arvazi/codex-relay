@@ -3,6 +3,7 @@ import {
   ChatMessageSchema,
   CheckoutWorkspaceBranchRequestSchema,
   CommitPushWorkspaceRequestSchema,
+  ConnectUrlsResponseSchema,
   CreateThreadRequestSchema,
   EncryptedPayloadSchema,
   ImageAttachmentUploadResponseSchema,
@@ -179,6 +180,7 @@ import {
   startTailscaleServeForPreviewUrl,
   TailscaleServeInvalidUrlError,
 } from "./tailscale-serve.js";
+import { advertisedConnectUrls } from "./public-reachability.js";
 import { resolveWorkspaceTerminalShell } from "./workspace-terminal-shell.js";
 
 const defaultWorkspacePath = process.cwd();
@@ -755,6 +757,15 @@ export function createApp(options: AppOptions = {}) {
     });
 
     return secureJson(c, options.pairing, secureSessionsByTokenHash, response);
+  });
+
+  app.get(apiPaths.connectUrls, (c) => {
+    return secureJson(
+      c,
+      options.pairing,
+      secureSessionsByTokenHash,
+      ConnectUrlsResponseSchema.parse({ urls: advertisedConnectUrls() }),
+    );
   });
 
   app.patch(apiPaths.preferences, async (c) => {

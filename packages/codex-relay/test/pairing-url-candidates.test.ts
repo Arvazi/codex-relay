@@ -45,7 +45,11 @@ describe("pairing URL candidates", () => {
 
     const parsed = new URL(payload);
     expect(parsed.searchParams.has("h")).toBe(false);
-    expect(parsed.searchParams.has("serverUrls")).toBe(false);
+    expect(JSON.parse(parsed.searchParams.get("serverUrls") ?? "[]")).toEqual([
+      "http://100.64.0.10:8787",
+      "https://relay.example.com",
+      "http://192.168.1.10:8788",
+    ]);
   });
 
   it("normalizes only http and https URLs", () => {

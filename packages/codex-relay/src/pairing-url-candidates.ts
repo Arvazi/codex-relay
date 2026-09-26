@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { networkInterfaces } from "node:os";
 
+import { tailscaleArgs } from "./tailscale-cli.js";
+
 export type ConnectUrlCandidate = {
   label: string;
   url: string;
@@ -40,15 +42,27 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
   if (hosts.length > 0) {
     url.searchParams.set("h", hosts.join(","));
   }
+  const normalizedUrls = details.serverUrls.flatMap((serverUrl) => {
+    const normalized = normalizeUrl(serverUrl);
+    return normalized ? [normalized] : [];
+  });
+  const hasUncompressedUrl = normalizedUrls.some(
+    (serverUrl) => !isRepresentedByCompactHosts(serverUrl, primaryServerUrl, hosts),
+  );
+  if (hasUncompressedUrl) {
+    url.searchParams.set("serverUrls", JSON.stringify(normalizedUrls));
+  }
   return url.toString();
 }
 
 export function getConnectUrlCandidates(details: { listenUrl: string; port: number }) {
-  return dedupeCandidates([
-    ...tailscaleConnectUrlCandidates(details.port),
-    ...localNetworkConnectUrlCandidates(details.port),
-    { label: "Server", url: details.listenUrl },
-  ]);
+  return dedupeCandidates(
+    [
+      ...tailscaleConnectUrlCandidates(details.port),
+      ...localNetworkConnectUrlCandidates(details.port),
+      { label: "Server", url: details.listenUrl },
+    ].filter((candidate) => !isUnspecifiedCandidate(candidate.url)),
+  );
 }
 
 export function normalizeUrl(value: string | undefined) {
@@ -121,6 +135,21 @@ function dedupeCandidates(candidates: ConnectUrlCandidate[]) {
   return [...deduped.values()];
 }
 
+function isRepresentedByCompactHosts(serverUrl: string, primaryServerUrl: string, hosts: string[]) {
+  if (serverUrl === primaryServerUrl) {
+    return true;
+  }
+  const primary = parseUrl(primaryServerUrl);
+  const candidate = parseUrl(serverUrl);
+  return Boolean(
+    primary &&
+    candidate &&
+    candidate.protocol === primary.protocol &&
+    candidate.port === primary.port &&
+    hosts.includes(candidate.hostname),
+  );
+}
+
 function compactCandidateHosts(primaryServerUrl: string, serverUrls: string[]) {
   const primary = parseUrl(primaryServerUrl);
   if (!primary) {
@@ -166,6 +195,11 @@ function isUnspecifiedHost(host: string) {
   return host === "0.0.0.0" || host === "::";
 }
 
+function isUnspecifiedCandidate(url: string) {
+  const host = parseUrlHost(url);
+  return host ? isUnspecifiedHost(host) : false;
+}
+
 function isTailscaleHost(host: string) {
   return (
     host.endsWith(".ts.net") || host.endsWith(".beta.tailscale.net") || isTailscaleIPv4Host(host)
@@ -199,7 +233,7 @@ function isLocalIPv6Host(host: string) {
 
 function getTailscaleStatus() {
   try {
-    const output = execFileSync("tailscale", ["status", "--json"], {
+    const output = execFileSync("tailscale", tailscaleArgs(["status", "--json"]), {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
@@ -217,7 +251,7 @@ function getTailscaleStatus() {
 
 function getTailscaleServeHttpsUrl(dnsName: string, port: number) {
   try {
-    const output = execFileSync("tailscale", ["serve", "status", "--json"], {
+    const output = execFileSync("tailscale", tailscaleArgs(["serve", "status", "--json"]), {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,

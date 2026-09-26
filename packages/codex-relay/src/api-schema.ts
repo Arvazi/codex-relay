@@ -342,6 +342,15 @@ export const ThreadSummarySchema = z.object({
   goal: ThreadGoalSchema.nullable().optional(),
 });
 
+export const ConnectUrlSchema = z.object({
+  label: z.string().min(1),
+  url: z.string().min(1),
+});
+
+export const ConnectUrlsResponseSchema = z.object({
+  urls: z.array(ConnectUrlSchema),
+});
+
 export const StatusResponseSchema = z.object({
   ok: z.boolean(),
   service: z.literal("codex-relay-server"),
@@ -1090,6 +1099,7 @@ export const apiPaths = {
   sessionsClear: "/v1/sessions/clear",
   sessionRefresh: "/v1/session/refresh",
   status: "/v1/status",
+  connectUrls: "/v1/connect-urls",
   preferences: "/v1/preferences",
   pushNotifications: "/v1/notifications/push",
   rateLimits: "/v1/rate-limits",
