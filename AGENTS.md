@@ -41,4 +41,4 @@ The short Git history uses simple Conventional Commit-style messages such as `ch
 
 ## Security & Configuration Tips
 
-Do not commit local secrets, device-specific URLs, or generated native build output. Physical devices usually need `EXPO_PUBLIC_CODEX_RELAY_SERVER_URL=http://<host-lan-ip>:8790`; simulators and web can use the default `127.0.0.1` value.
+Do not commit local secrets, device-specific URLs, or generated native build output. The relay listens on `127.0.0.1` by default, so physical devices reach it over Tailscale; for a LAN URL (`EXPO_PUBLIC_CODEX_RELAY_SERVER_URL=http://<host-lan-ip>:8790`) start it with `HOST=0.0.0.0`. Simulators and web can use the default `127.0.0.1` value.

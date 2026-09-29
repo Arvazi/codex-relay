@@ -15,7 +15,7 @@ export function getConnectUrlGuidance(url: string) {
   }
 
   if (isLocalhost(host) || isUnspecifiedHost(host)) {
-    return "This address is only reachable from this computer. Use a same-Wi-Fi address or Tailscale for mobile pairing.";
+    return "This address is only reachable from this computer. Pair over Tailscale, or start the relay with HOST=0.0.0.0 to pair over the same Wi-Fi.";
   }
 
   if (isTailscaleHost(host)) {
@@ -56,10 +56,14 @@ export function createPairingQrPayload(details: { serverPublicKey: string; serve
 }
 
 export function getConnectUrlCandidates(details: { listenUrl: string; port: number }) {
+  // A relay bound to loopback is unreachable from the local network, so do not offer those addresses.
+  const listenHost = parseUrlHost(details.listenUrl);
+  const lanCandidates =
+    listenHost && isLocalhost(listenHost) ? [] : localNetworkConnectUrlCandidates(details.port);
   return dedupeCandidates(
     [
       ...tailscaleConnectUrlCandidates(details.port),
-      ...localNetworkConnectUrlCandidates(details.port),
+      ...lanCandidates,
       { label: "Server", url: details.listenUrl },
     ].filter((candidate) => !isUnspecifiedCandidate(candidate.url)),
   );

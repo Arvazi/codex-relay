@@ -38,7 +38,9 @@ import {
 
 const port = Number(process.env.PORT ?? defaultCodexRelayPort);
 let activePort = port;
-const hostname = process.env.HOST ?? "0.0.0.0";
+// Loopback by default: Tailscale (userspace networking) and the public tunnel reach the relay
+// through 127.0.0.1. HOST=0.0.0.0 also lets phones on the same Wi-Fi connect directly.
+const hostname = process.env.HOST ?? "127.0.0.1";
 const dangerouslyAutoApprove = process.env.CODEX_RELAY_DANGEROUSLY_AUTO_APPROVE === "1";
 const serverIdentity = await getServerIdentity();
 const approvalSecret = await getApprovalSecret();
