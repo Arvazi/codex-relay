@@ -4,6 +4,8 @@ private let repoPath = "/Users/arianvaziri/Projects/codex-relay"
 // Keep in sync with defaultCodexRelayPort in packages/codex-relay/src/api-schema.ts.
 private let relayPort = 8790
 private let healthURL = URL(string: "http://127.0.0.1:\(relayPort)/version")!
+// How long the relay process tree gets to exit after SIGTERM before it is force-killed.
+private let processExitGrace: TimeInterval = 2
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow!
@@ -45,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     if ownsRelay {
-      stopRelay()
+      // Nothing deferred runs once the app has quit, so wait for the relay to go down here.
+      stopRelay(waitForExit: true)
     }
     allowSleep()
   }
@@ -96,12 +99,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard relayProcess == nil else { return }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    // The relay listens on loopback only: Tailscale (userspace networking) and the tunnel reach it
+    // through 127.0.0.1, and nothing on the local network should.
     process.arguments = [
       "-c",
       """
       cd \(shellQuote(repoPath))
       export PATH="/opt/homebrew/bin:/usr/bin:/bin"
       export TAILSCALE_SOCKET="/tmp/tailscaled-silkrock.sock"
+      export HOST="127.0.0.1"
       exec /usr/bin/caffeinate -i /opt/homebrew/bin/pnpm dev
       """,
     ]
@@ -134,11 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func stopRelay() {
+  private func stopRelay(waitForExit: Bool = false) {
     if let process = relayProcess, process.isRunning {
-      terminateProcessTree(process.processIdentifier)
+      terminateProcessTree(process.processIdentifier, waitForExit: waitForExit)
     } else if let pid = listenerPID() {
-      terminateProcessTree(pid)
+      terminateProcessTree(pid, waitForExit: waitForExit)
     }
     relayProcess = nil
     ownsRelay = false
@@ -200,7 +206,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  // Metro is only needed while working on the dev-client build, and it listens on every network
+  // interface, so it is off unless the `startMetro` user default is set.
   private func ensureMetro() {
+    guard UserDefaults.standard.bool(forKey: "startMetro") else { return }
     if let process = metroProcess, process.isRunning {
       return
     }
@@ -259,13 +268,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return pid
   }
 
-  private func terminateProcessTree(_ pid: pid_t) {
-    let killer = Process()
-    killer.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-    killer.arguments = ["-TERM", "-P", String(pid)]
-    try? killer.run()
-    killer.waitUntilExit()
-    kill(pid, SIGTERM)
+  // pnpm, the watchdog and tsx each add a process layer and do not forward signals reliably, so
+  // signal every descendant. Signalling only the direct children leaves the relay running as an
+  // orphan after Stop or Quit.
+  private func terminateProcessTree(_ pid: pid_t, waitForExit: Bool) {
+    let tree = [pid] + descendantPIDs(of: pid)
+    for member in tree {
+      kill(member, SIGTERM)
+    }
+    let killSurvivors = {
+      for member in tree where kill(member, 0) == 0 {
+        kill(member, SIGKILL)
+      }
+    }
+    if waitForExit {
+      let deadline = Date().addingTimeInterval(processExitGrace)
+      while Date() < deadline, tree.contains(where: { kill($0, 0) == 0 }) {
+        usleep(100_000)
+      }
+      killSurvivors()
+    } else {
+      DispatchQueue.global().asyncAfter(deadline: .now() + processExitGrace, execute: killSurvivors)
+    }
+  }
+
+  private func descendantPIDs(of root: pid_t) -> [pid_t] {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+    process.arguments = ["-axo", "pid=,ppid="]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+    do {
+      try process.run()
+    } catch {
+      return []
+    }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    var childrenByParent: [pid_t: [pid_t]] = [:]
+    for line in String(data: data, encoding: .utf8)?.split(whereSeparator: \.isNewline) ?? [] {
+      let fields = line.split(separator: " ").compactMap { Int32($0) }
+      if fields.count == 2 {
+        childrenByParent[fields[1], default: []].append(fields[0])
+      }
+    }
+    var descendants: [pid_t] = []
+    var pending = [root]
+    while !pending.isEmpty {
+      let children = childrenByParent[pending.removeFirst()] ?? []
+      descendants.append(contentsOf: children)
+      pending.append(contentsOf: children)
+    }
+    return descendants
   }
 
   private func logFileURL() -> URL {
