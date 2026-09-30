@@ -10,10 +10,45 @@ import {
 } from "codex-relay/api-schema";
 
 const optimisticSteeringMessageIdPrefix = "optimistic-steering:";
+const optimisticPromptMessageIdPrefix = "optimistic-prompt:";
 
 export function appendOptimisticSteeringMessageToDetail(
   current: ThreadDetailResponse | undefined,
   options: {
+    input: QueuedThreadInput;
+    nowIso: string;
+    thread: ThreadSummary | undefined;
+    threadId: string;
+  },
+): ThreadDetailResponse | undefined {
+  return appendOptimisticUserMessageToDetail(current, {
+    ...options,
+    id: optimisticSteeringMessageId(options.input.id),
+    details: { optimisticQueuedInputId: options.input.id },
+  });
+}
+
+// Shows the user's prompt immediately; the server's copy replaces it when the run starts.
+export function appendOptimisticPromptMessageToDetail(
+  current: ThreadDetailResponse | undefined,
+  options: {
+    input: QueuedThreadInput;
+    nowIso: string;
+    thread: ThreadSummary | undefined;
+    threadId: string;
+  },
+): ThreadDetailResponse | undefined {
+  return appendOptimisticUserMessageToDetail(current, {
+    ...options,
+    id: optimisticPromptMessageId(options.input.id),
+  });
+}
+
+function appendOptimisticUserMessageToDetail(
+  current: ThreadDetailResponse | undefined,
+  options: {
+    details?: Parameters<typeof chatMessageDetailsFromPromptContext>[1];
+    id: string;
     input: QueuedThreadInput;
     nowIso: string;
     thread: ThreadSummary | undefined;
@@ -25,22 +60,33 @@ export function appendOptimisticSteeringMessageToDetail(
     return current;
   }
   const message: ChatMessage = {
-    id: optimisticSteeringMessageId(options.input.id),
+    id: options.id,
     threadId: options.threadId,
     role: "user",
     kind: "chat",
     content: promptMarkdownWithSkills(options.input.prompt, options.input.skills),
     createdAt: options.nowIso,
-    details: chatMessageDetailsFromPromptContext(options.input, {
-      optimisticQueuedInputId: options.input.id,
-    }),
+    details: chatMessageDetailsFromPromptContext(options.input, options.details),
     state: "completed",
   };
   return {
+    ...current,
     thread,
     messages: upsertMessage(current?.messages ?? [], message),
     pendingInputRequests: current?.pendingInputRequests ?? [],
   };
+}
+
+const optimisticPromptReplacementWindowMs = 15_000;
+
+function supersedesOptimisticPrompt(optimistic: ChatMessage, incoming: ChatMessage) {
+  return (
+    optimistic.id.startsWith(optimisticPromptMessageIdPrefix) &&
+    incoming.role === "user" &&
+    !isLocalOnlyMessageId(incoming.id) &&
+    Date.parse(incoming.createdAt) >=
+      Date.parse(optimistic.createdAt) - optimisticPromptReplacementWindowMs
+  );
 }
 
 export function mergeThreadDetailState(
@@ -51,11 +97,41 @@ export function mergeThreadDetailState(
     return response;
   }
   const messages = mergeMessages(current.messages, response.messages);
+  // When earlier pages were already loaded, the latest page doesn't reach back to them.
+  const firstResponseMessageId = response.messages[0]?.id;
+  const keepsEarlierPages =
+    firstResponseMessageId !== undefined &&
+    current.messages.findIndex((message) => message.id === firstResponseMessageId) > 0;
   return {
     ...response,
+    hasEarlierMessages: keepsEarlierPages
+      ? current.hasEarlierMessages
+      : (response.hasEarlierMessages ?? current.hasEarlierMessages),
     thread: preferredThreadSnapshot(current.thread, response.thread),
     messages,
   };
+}
+
+export function prependThreadMessagePage(
+  current: ThreadDetailResponse,
+  page: ThreadDetailResponse,
+): ThreadDetailResponse {
+  const knownIds = new Set(current.messages.map((message) => message.id));
+  return {
+    ...current,
+    hasEarlierMessages: page.hasEarlierMessages ?? false,
+    messages: [
+      ...page.messages.filter((message) => !knownIds.has(message.id)),
+      ...current.messages,
+    ],
+  };
+}
+
+export function isLocalOnlyMessageId(messageId: string) {
+  return (
+    messageId.startsWith(optimisticSteeringMessageIdPrefix) ||
+    messageId.startsWith(optimisticPromptMessageIdPrefix)
+  );
 }
 
 export function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
@@ -74,6 +150,14 @@ export function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
     : -1;
   if (replacementIndex !== -1) {
     return messages.map((candidate, index) => (index === replacementIndex ? message : candidate));
+  }
+  const optimisticPromptIndex = messages.findIndex((candidate) =>
+    supersedesOptimisticPrompt(candidate, message),
+  );
+  if (optimisticPromptIndex !== -1) {
+    return sortMessagesByCreation(
+      messages.map((candidate, index) => (index === optimisticPromptIndex ? message : candidate)),
+    );
   }
   const optimisticIndex =
     message.role === "user"
@@ -96,11 +180,19 @@ export function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
   return sortMessagesByCreation([...messages, message]);
 }
 
+export function optimisticPromptMessageId(inputId: string) {
+  return `${optimisticPromptMessageIdPrefix}${inputId}`;
+}
+
 function optimisticSteeringMessageId(inputId: string) {
   return `${optimisticSteeringMessageIdPrefix}${inputId}`;
 }
 
-function mergeMessages(baseMessages: ChatMessage[], incomingMessages: ChatMessage[]) {
+function mergeMessages(allBaseMessages: ChatMessage[], incomingMessages: ChatMessage[]) {
+  const baseMessages = allBaseMessages.filter(
+    (message) =>
+      !incomingMessages.some((incoming) => supersedesOptimisticPrompt(message, incoming)),
+  );
   const replacedMessageIds = new Set(
     [...baseMessages, ...incomingMessages]
       .map(replacementMessageId)

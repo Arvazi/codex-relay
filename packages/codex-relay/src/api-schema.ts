@@ -728,6 +728,8 @@ export const ListSkillsResponseSchema = z.object({
 export const ThreadDetailResponseSchema = z.object({
   thread: ThreadSummarySchema,
   messages: z.array(ChatMessageSchema),
+  // True when `limit` cut off older messages; fetch them with `before=<first message id>`.
+  hasEarlierMessages: z.boolean().optional(),
   pendingInputRequests: z.array(PendingInputRequestSchema).default([]),
 });
 

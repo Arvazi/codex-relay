@@ -53,22 +53,28 @@ const TIMELINE_CONTENT_SETTLE_OFFSET = 10;
 
 export function MessageTimeline({
   bottomAccessoryHeight = 0,
+  hasEarlierMessages = false,
   isLoading,
+  isLoadingEarlierMessages = false,
   isRunning,
   keyboardLayoutFrozen = false,
   messages,
   onKeyboardDismissRequest,
+  onLoadEarlierMessages,
   onMessageCopied,
   onMessageRewind,
   onOpenMarkdownAttachment,
   threadId,
 }: {
   bottomAccessoryHeight?: number;
+  hasEarlierMessages?: boolean;
   isLoading?: boolean;
+  isLoadingEarlierMessages?: boolean;
   isRunning: boolean;
   keyboardLayoutFrozen?: boolean;
   messages: ChatMessage[];
   onKeyboardDismissRequest?: () => void;
+  onLoadEarlierMessages?: () => void;
   onMessageCopied?: () => void;
   onMessageRewind?: (message: ChatMessage) => void;
   onOpenMarkdownAttachment?: (target: WorkspaceMarkdownPreviewTarget) => void;
@@ -211,6 +217,14 @@ export function MessageTimeline({
               scrollEventThrottle={48}
               showsVerticalScrollIndicator={false}
               style={styles.list}
+              ListHeaderComponent={
+                hasEarlierMessages && onLoadEarlierMessages ? (
+                  <EarlierMessagesButton
+                    isLoading={isLoadingEarlierMessages}
+                    onPress={onLoadEarlierMessages}
+                  />
+                ) : null
+              }
               ListFooterComponent={
                 isRunning ? <RunningFooter /> : <View style={styles.listEndPad} />
               }
@@ -250,6 +264,39 @@ export function MessageTimeline({
   );
 }
 
+function EarlierMessagesButton({
+  isLoading,
+  onPress,
+}: {
+  isLoading: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.earlierMessages}>
+      <Pressable
+        accessibilityLabel="Show earlier messages"
+        accessibilityRole="button"
+        accessibilityState={{ busy: isLoading }}
+        disabled={isLoading}
+        hitSlop={8}
+        onPress={() => {
+          hapticSelection();
+          onPress();
+        }}
+        style={({ pressed }) => [styles.earlierMessagesButton, pressed && styles.pressed]}
+      >
+        {isLoading ? (
+          <ActivityIndicator color={Colors.dark.textSecondary} size="small" />
+        ) : (
+          <ThemedText type="small" themeColor="textSecondary">
+            Show earlier messages
+          </ThemedText>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
 function LoadingConversation() {
   return (
     <View style={styles.empty} accessibilityRole="progressbar">
@@ -277,6 +324,21 @@ const styles = StyleSheet.create({
   emptyText: {
     maxWidth: 260,
     textAlign: "center",
+  },
+  earlierMessages: {
+    alignItems: "center",
+    paddingBottom: Spacing.two,
+  },
+  earlierMessagesButton: {
+    alignItems: "center",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderCurve: "continuous",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: "center",
+    minWidth: 180,
+    paddingHorizontal: Spacing.three,
   },
   list: {
     flex: 1,

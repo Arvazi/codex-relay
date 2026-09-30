@@ -127,7 +127,7 @@ export type AppServerThreadItem =
   | {
       type: "fileChange";
       id: string;
-      changes: Array<{ path: string; kind: string }>;
+      changes: Array<{ path: string; kind: string; diff?: string | null }>;
       patch?: string | null;
     }
   | { type: "mcpToolCall"; id: string; server: string; tool: string; status?: string | null }

@@ -105,6 +105,9 @@ import {
   setQueuedInputsState,
   setRuntimePreferencesResponseState,
   setStatusState,
+  appendOptimisticPromptState,
+  appendOptimisticSteeringMessageState,
+  fetchEarlierThreadMessagesState,
   setThreadDetailState,
   setThreadRunningState,
   setThreadsState,
@@ -489,7 +492,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     statusQuery.data?.appServerAvailable === true &&
     threadsQuery.data?.source === "app-server" &&
     Boolean(activeThreadId && threadsById[activeThreadId]);
-  const isRunningAppThread = activeThread?.source === "app" && activeThread.state === "running";
+  const isRunningAppThread = activeThread?.state === "running";
   const activeWorkspacePath = activeThread?.cwd ?? workspacePath;
   const skillsQuery = useQuery({
     queryKey: ["codex-relay-skills", serverUrl, activeWorkspacePath ?? null],
@@ -524,6 +527,17 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     [activeThreadId],
   );
   const messages = activeThreadDetailQuery.data?.messages ?? [];
+  const hasEarlierMessages = activeThreadDetailQuery.data?.hasEarlierMessages === true;
+  const [loadingEarlierThreadId, setLoadingEarlierThreadId] = useState<string>();
+  const loadEarlierMessages = useCallback(() => {
+    if (!activeThreadId || loadingEarlierThreadId) {
+      return;
+    }
+    setLoadingEarlierThreadId(activeThreadId);
+    void fetchEarlierThreadMessagesState(queryClient, activeThreadId)
+      .catch((caught: unknown) => setConnection("offline", errorMessage(caught)))
+      .finally(() => setLoadingEarlierThreadId(undefined));
+  }, [activeThreadId, loadingEarlierThreadId, queryClient]);
   const isLoadingSelectedThreadMessages = activeThreadId
     ? threadMessagesLoadingByThreadId[activeThreadId] === true
     : false;
@@ -631,7 +645,8 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         if (chatStore$.activeThreadId.peek() !== threadId) {
           return response.thread.state;
         }
-        await Promise.all([
+        // Render messages as soon as they arrive; the side panels fill in on their own.
+        void Promise.all([
           fetchQueuedInputsState(queryClient, threadId).catch(() => undefined),
           fetchContextWindowState(queryClient, threadId).catch(() => undefined),
           fetchThreadGoalState(queryClient, threadId).catch(() => undefined),
@@ -649,24 +664,6 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       }
     },
     [queryClient, syncPairedSessionState],
-  );
-
-  const scheduleThreadStatusPoll = useCallback(
-    (threadId: string) => {
-      clearThreadStatusPoll();
-      threadStatusPollRef.current = setTimeout(() => {
-        threadStatusPollRef.current = undefined;
-        if (chatStore$.activeThreadId.peek() !== threadId) {
-          return;
-        }
-        void syncThreadSnapshot(threadId).then((state) => {
-          if (state === "running" && chatStore$.activeThreadId.peek() === threadId) {
-            scheduleThreadStatusPoll(threadId);
-          }
-        });
-      }, 1500);
-    },
-    [clearThreadStatusPoll, syncThreadSnapshot],
   );
 
   const loadThread = useCallback(
@@ -809,14 +806,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       syncPairedSessionState();
       const state = await syncThreadSnapshot(threadId);
       if (state === "running" && chatStore$.activeThreadId.peek() === threadId) {
-        const thread = queryClient.getQueryData<
-          Awaited<ReturnType<typeof serverStateQueryFns.thread>>
-        >(serverStateKeys.thread(threadId))?.thread;
-        if (thread?.source === "app") {
-          requestThreadStreamReconnect(threadId);
-          return;
-        }
-        scheduleThreadStatusPoll(threadId);
+        requestThreadStreamReconnect(threadId);
         return;
       }
       if (state) {
@@ -825,13 +815,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       }
       setConnection("offline", fallbackError);
     },
-    [
-      clearThreadStatusPoll,
-      queryClient,
-      scheduleThreadStatusPoll,
-      syncPairedSessionState,
-      syncThreadSnapshot,
-    ],
+    [clearThreadStatusPoll, syncPairedSessionState, syncThreadSnapshot],
   );
 
   const recoverPromptRunAfterEarlyStreamLoss = useCallback(
@@ -977,7 +961,6 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     if (
       !activeThreadId ||
       activeThread?.state !== "running" ||
-      activeThread.source !== "app" ||
       closeStreamRef.current ||
       threadStreamReconnectRequest
     ) {
@@ -985,7 +968,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
     }
 
     requestThreadStreamReconnect(activeThreadId);
-  }, [activeThread?.source, activeThread?.state, activeThreadId, threadStreamReconnectRequest]);
+  }, [activeThread?.state, activeThreadId, threadStreamReconnectRequest]);
 
   const loadWorkspaceChanges = useCallback(
     async (options: { staleTime?: number } = {}) => {
@@ -1482,7 +1465,10 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
           queryClient.getQueryData<Awaited<ReturnType<typeof serverStateQueryFns.queuedInputs>>>(
             serverStateKeys.queuedInputs(activeThreadId),
           )?.inputs ?? [];
-        {
+        if (response.acceptedAs === "steering" && response.input) {
+          // Delivered into the running turn right away (e.g. a desktop-owned thread).
+          appendOptimisticSteeringMessageState(queryClient, activeThreadId, response.input);
+        } else {
           const next = [
             ...current,
             response.input ?? {
@@ -1497,7 +1483,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
           setQueuedInputsState(queryClient, activeThreadId, visibleQueue, response.queueLength);
         }
         setConnection("connected");
-        if (!closeStreamRef.current && activeThread?.source === "app") {
+        if (!closeStreamRef.current) {
           requestThreadStreamReconnect(activeThreadId);
         }
       } catch (caught) {
@@ -1536,6 +1522,16 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
   }) {
     const runPreferences = currentRuntimePreferences();
     const queuedThreadId = input.threadId ?? chatStore$.activeThreadId.peek();
+    const optimisticPrompt = {
+      attachments: input.attachments,
+      id: `${Date.now()}`,
+      prompt: input.prompt,
+      skills: input.skills,
+    };
+    let removeOptimisticPrompt = queuedThreadId
+      ? appendOptimisticPromptState(queryClient, queuedThreadId, optimisticPrompt)
+      : undefined;
+    // After the optimistic bubble so a freshly created detail entry is also marked running.
     setThreadRunningState(queryClient, queuedThreadId, true);
     let threadId = input.threadId;
     clearQueuedPrompts(queuedThreadId);
@@ -1557,6 +1553,11 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
         moveNewThreadCollaborationMode(response.thread.id, input.collaborationMode);
         setThreadDetailState(queryClient, response.thread, response.messages);
         setThreadRunningState(queryClient, response.thread.id, true);
+        removeOptimisticPrompt = appendOptimisticPromptState(
+          queryClient,
+          response.thread.id,
+          optimisticPrompt,
+        );
         setActiveThread(response.thread.id);
         threadId = response.thread.id;
       }
@@ -1571,6 +1572,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       let terminalStreamEvent: StreamThreadRunEvent | undefined;
       markStreamActivity();
       const restorePrompt = () => {
+        removeOptimisticPrompt?.();
         if (!input.restoreDraftOnFailure) {
           return;
         }
@@ -1683,6 +1685,7 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       );
     } catch (caught) {
       syncPairedSessionState();
+      removeOptimisticPrompt?.();
       if (input.restoreDraftOnFailure) {
         setComposerDraft(input.restoreText ?? input.prompt, threadId);
         setComposerAttachments(input.restoreAttachments ?? [], threadId);
@@ -2284,7 +2287,12 @@ export function ChatScreen({ initialPairingUrl }: ChatScreenProps = {}) {
       goal={activeThread?.goal ?? null}
       inputNativeID={CHAT_INPUT_NATIVE_ID}
       isAttachingImage={isAttachingImages}
+      hasEarlierMessages={hasEarlierMessages}
+      isLoadingEarlierMessages={
+        Boolean(activeThreadId) && loadingEarlierThreadId === activeThreadId
+      }
       isLoadingMessages={isLoadingMessages}
+      onLoadEarlierMessages={loadEarlierMessages}
       isRunning={isRunning}
       leadingAction={{
         icon: usesExpandedSidebar ? (isSidebarVisible ? "sidebarHide" : "sidebarShow") : "menu",

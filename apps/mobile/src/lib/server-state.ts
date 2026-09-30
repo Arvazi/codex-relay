@@ -51,9 +51,13 @@ import {
   cacheWorkspaceRuntimePreferencesFromStatus,
 } from "@/lib/workspace-runtime-preferences-cache";
 import {
+  appendOptimisticPromptMessageToDetail,
   appendOptimisticSteeringMessageToDetail,
+  isLocalOnlyMessageId,
+  optimisticPromptMessageId,
   mergeThreadDetailState,
   preferredThreadSnapshot,
+  prependThreadMessagePage,
   upsertMessage,
 } from "./server-state-messages";
 
@@ -117,13 +121,13 @@ export async function fetchThreadState(
   options: { refresh?: boolean } = {},
 ) {
   if (options.refresh) {
-    const response = await getThread(threadId, { refresh: true });
+    const response = await getThread(threadId, { limit: threadDetailPageSize, refresh: true });
     setThreadDetailState(
       queryClient,
       response.thread,
       response.messages,
       response.pendingInputRequests,
-      { replaceMessages: true },
+      { hasEarlierMessages: response.hasEarlierMessages, replaceMessages: true },
     );
     return response;
   }
@@ -133,14 +137,29 @@ export async function fetchThreadState(
   });
 }
 
+// Long threads have thousands of items; load the latest page and fetch older ones on demand.
+const threadDetailPageSize = 120;
+
 export async function fetchThreadQueryState(queryClient: QueryClient, threadId: string) {
-  const response = await getThread(threadId);
+  const response = await getThread(threadId, { limit: threadDetailPageSize });
   const merged = mergeThreadDetailState(
     queryClient.getQueryData<ThreadDetailResponse>(serverStateKeys.thread(threadId)),
     response,
   );
   upsertThreadState(queryClient, merged.thread);
   return merged;
+}
+
+export async function fetchEarlierThreadMessagesState(queryClient: QueryClient, threadId: string) {
+  const current = queryClient.getQueryData<ThreadDetailResponse>(serverStateKeys.thread(threadId));
+  const before = current?.messages.find((message) => !isLocalOnlyMessageId(message.id))?.id;
+  if (!current || !before) {
+    return;
+  }
+  const response = await getThread(threadId, { before, limit: threadDetailPageSize });
+  queryClient.setQueryData<ThreadDetailResponse>(serverStateKeys.thread(threadId), (latest) =>
+    latest ? prependThreadMessagePage(latest, response) : latest,
+  );
 }
 
 export function fetchQueuedInputsState(queryClient: QueryClient, threadId: string) {
@@ -434,12 +453,15 @@ export function setThreadDetailState(
   thread: ThreadSummary,
   messages: ChatMessage[],
   pendingInputRequests: ThreadDetailResponse["pendingInputRequests"] = [],
-  options: { replaceMessages?: boolean } = {},
+  options: { hasEarlierMessages?: boolean; replaceMessages?: boolean } = {},
 ) {
   upsertThreadState(queryClient, thread);
   const response: ThreadDetailResponse = {
     thread,
     messages,
+    ...(options.hasEarlierMessages === undefined
+      ? {}
+      : { hasEarlierMessages: options.hasEarlierMessages }),
     pendingInputRequests,
   };
   queryClient.setQueryData<ThreadDetailResponse>(serverStateKeys.thread(thread.id), (current) =>
@@ -689,13 +711,37 @@ function upsertPendingInputRequestState(
 
 function upsertMessageState(queryClient: QueryClient, thread: ThreadSummary, message: ChatMessage) {
   queryClient.setQueryData<ThreadDetailResponse>(serverStateKeys.thread(thread.id), (current) => ({
+    ...current,
     thread,
     messages: upsertMessage(current?.messages ?? [], message),
     pendingInputRequests: current?.pendingInputRequests ?? [],
   }));
 }
 
-function appendOptimisticSteeringMessageState(
+export function appendOptimisticPromptState(
+  queryClient: QueryClient,
+  threadId: string,
+  input: QueuedThreadInput,
+) {
+  const messageId = optimisticPromptMessageId(input.id);
+  queryClient.setQueryData<ThreadDetailResponse>(serverStateKeys.thread(threadId), (current) =>
+    appendOptimisticPromptMessageToDetail(current, {
+      input,
+      nowIso: new Date().toISOString(),
+      thread: optimisticSteeringThread(queryClient, threadId),
+      threadId,
+    }),
+  );
+  return function removeOptimisticPrompt() {
+    queryClient.setQueryData<ThreadDetailResponse>(serverStateKeys.thread(threadId), (current) =>
+      current
+        ? { ...current, messages: current.messages.filter((message) => message.id !== messageId) }
+        : current,
+    );
+  };
+}
+
+export function appendOptimisticSteeringMessageState(
   queryClient: QueryClient,
   threadId: string,
   input: QueuedThreadInput,

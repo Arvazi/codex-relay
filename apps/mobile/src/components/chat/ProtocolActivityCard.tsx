@@ -469,7 +469,9 @@ function ActivityDetailSheet({
 }) {
   const theme = useTheme();
   const isPlan = message.kind === "plan";
-  const sections = isPlan ? [] : detailSections(message);
+  const isThinking = message.kind === "thinking";
+  const markdownBody = isPlan ? planBody(message) : isThinking ? reasoningBody(message) : undefined;
+  const sections = markdownBody === undefined ? detailSections(message) : [];
   const [fullDetails, setFullDetails] = useState<Partial<Record<ThreadMessageDetailField, string>>>(
     {},
   );
@@ -499,15 +501,21 @@ function ActivityDetailSheet({
   return (
     <AppBottomSheet
       onClose={onClose}
-      subtitle={isPlan ? undefined : model.detail}
+      subtitle={markdownBody === undefined ? model.detail : undefined}
       title={model.label}
       visible={visible}
     >
       <View style={[styles.sheetAccent, { backgroundColor: model.color }]} />
       <View style={styles.sheetContent}>
-        {isPlan ? (
+        {markdownBody !== undefined ? (
           <View style={styles.planDetailBody}>
-            <PlanMarkdown markdown={planBody(message)} selectable variant="detail" />
+            {markdownBody ? (
+              <PlanMarkdown markdown={markdownBody} selectable variant="detail" />
+            ) : (
+              <ThemedText type="small" themeColor="textSecondary">
+                Codex didn't share a summary for this step.
+              </ThemedText>
+            )}
           </View>
         ) : (
           sections.map((section) => {
@@ -594,7 +602,7 @@ function activityModel(message: ChatMessage): ActivityModel {
       return {
         color: "#9B8BD4",
         label: "Thinking",
-        detail: firstLine(message.content),
+        detail: reasoningTitle(message),
       };
     case "plan":
       return {
@@ -1461,6 +1469,22 @@ function searchTarget(args: string) {
     return result;
   }, []);
   return pieces.slice(0, 2).join(" in ") || "workspace";
+}
+
+// Matches the relay's placeholder for reasoning items that carry no summary text.
+const reasoningPlaceholder = "Reasoning";
+
+function reasoningBody(message: ChatMessage) {
+  const content = message.content.trim();
+  return content === reasoningPlaceholder ? "" : content;
+}
+
+// Codex summaries start with a bold heading line, e.g. "**Checking the config**".
+function reasoningTitle(message: ChatMessage) {
+  const heading = reasoningBody(message)
+    .split("\n")
+    .find((line) => line.trim());
+  return heading ? firstLine(heading.replace(/\*\*/g, "")) : "";
 }
 
 function firstLine(value: string) {

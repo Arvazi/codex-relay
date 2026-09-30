@@ -154,6 +154,7 @@ import {
   type CodexClient,
 } from "./codex.js";
 import { readLatestContextWindowUsage } from "./context-window.js";
+import { DesktopIpcError, type DesktopIpcClient } from "./desktop-ipc.js";
 import { codexRelayDataPath } from "./paths.js";
 import { relayDebugLog } from "./debug-log.js";
 import { permanentClientSessionExpiresAt, type PairingSessionStore } from "./pairing-store.js";
@@ -181,6 +182,14 @@ import {
   TailscaleServeInvalidUrlError,
 } from "./tailscale-serve.js";
 import { advertisedConnectUrls } from "./public-reachability.js";
+import {
+  countRolloutLinesBefore,
+  readRolloutActiveTurn,
+  readRolloutLinesFrom,
+  rolloutCompletedTurnItem,
+  rolloutFileSize,
+  rolloutLifecycleRecord,
+} from "./rollout-tail.js";
 import { resolveWorkspaceTerminalShell } from "./workspace-terminal-shell.js";
 
 const defaultWorkspacePath = process.cwd();
@@ -203,6 +212,8 @@ const defaultWebPreviewPorts = [3000, 3001, 5173, 4173, 8080, 19006];
 type AppOptions = {
   appServer?: CodexAppServerClient | null;
   codex?: CodexClient;
+  // Routes turns on threads owned by the Codex desktop app through its IPC router.
+  desktopIpc?: DesktopIpcClient | null;
   pairing?: PairingOptions;
   preferences?: RuntimePreferencesStore;
   pushNotificationSender?: PushNotificationSender;
@@ -350,12 +361,28 @@ export function createApp(options: AppOptions = {}) {
   const appServerHistoryLoadsByThreadId = new Map<string, Promise<void>>();
   const appServerRolloutPathsByThreadId = new Map<string, string>();
   const steeringThreads = new Set<string>();
+  const desktopIpc = options.desktopIpc ?? null;
   const secureSessionsByTokenHash = new Map<string, SecureSession>();
   const activeStreamControllers = new Map<
     ReadableStreamDefaultController<Uint8Array>,
     () => void
   >();
   const threadOptions = { threadSource: "codex-relay", workingDirectory: workspacePath };
+  // A thread loaded in the Codex desktop app is owned by the desktop's app-server; the relay's
+  // app-server cannot write to it, so turns go through the desktop IPC and progress is read from
+  // the rollout file.
+  const desktopOwnedThread = async (threadId: string) => {
+    if (!desktopIpc || activeAppServerTurnIdsByThreadId.has(threadId)) {
+      return undefined;
+    }
+    const rolloutPath =
+      appServerRolloutPathsByThreadId.get(threadId) ?? findRolloutFileForThread(threadId);
+    if (!rolloutPath || !(await desktopIpc.ownsThread(threadId))) {
+      return undefined;
+    }
+    appServerRolloutPathsByThreadId.set(threadId, rolloutPath);
+    return { desktopIpc, rolloutPath };
+  };
   const advanceAppServerHistoryGeneration = (threadId: string) => {
     appServerHistoryGenerationsByThreadId.set(
       threadId,
@@ -2069,6 +2096,10 @@ export function createApp(options: AppOptions = {}) {
   app.get("/v1/threads/:threadId", async (c) => {
     const threadId = c.req.param("threadId");
     const forceRefresh = c.req.query("refresh") === "true";
+    const page = threadMessagePageFromQuery({
+      before: c.req.query("before"),
+      limit: c.req.query("limit"),
+    });
     const detailStartedAt = Date.now();
     relayDebugLog("thread.detail.requested", {
       threadId,
@@ -2174,9 +2205,22 @@ export function createApp(options: AppOptions = {}) {
           scheduleAppServerHistoryLoad(threadId, cachedMessages);
         }
 
+        if (responseThread.state !== "running" && desktopIpc) {
+          const rolloutPath = appServerRolloutPathsByThreadId.get(threadId);
+          if (
+            rolloutPath &&
+            (await readRolloutActiveTurn(rolloutPath).catch(() => undefined))?.running &&
+            (await desktopIpc.ownsThread(threadId))
+          ) {
+            responseThread = updateThread(threads, messagesByThreadId, threadId, {
+              state: "running",
+            });
+          }
+        }
         const response = threadDetailResponse({
           thread: responseThread,
           messages,
+          page,
           pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
         });
         relayDebugLog("thread.detail.responded", {
@@ -2222,6 +2266,7 @@ export function createApp(options: AppOptions = {}) {
       const response = threadDetailResponse({
         thread: responseThread,
         messages,
+        page,
         pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
       });
       relayDebugLog("thread.detail.responded", {
@@ -2253,6 +2298,7 @@ export function createApp(options: AppOptions = {}) {
       threadDetailResponse({
         thread,
         messages: messagesByThreadId.get(threadId) ?? [],
+        page,
         pendingInputRequests: pendingInputRequestsForThread(pendingApprovals, threadId),
       }),
     );
@@ -2811,6 +2857,39 @@ export function createApp(options: AppOptions = {}) {
         skills,
         workspacePath: knownThread.cwd ?? workspacePath,
       };
+
+      const desktopOwner = await desktopOwnedThread(threadId);
+      if (desktopOwner) {
+        try {
+          await sendDesktopOwnedTurn({
+            desktopIpc: desktopOwner.desktopIpc,
+            queuedInput,
+            rolloutPath: desktopOwner.rolloutPath,
+            threadId,
+          });
+        } catch (error) {
+          return secureJson(
+            c,
+            options.pairing,
+            secureSessionsByTokenHash,
+            apiError("steer_failed", desktopTurnErrorMessage(error)),
+            409,
+          );
+        }
+        const thread = updateThread(threads, messagesByThreadId, threadId, {
+          state: "running",
+          lastPrompt: promptWithAttachmentReferences(prompt, runOptions.attachments ?? []),
+          lastError: undefined,
+        });
+        const response: SubmitThreadInputResponse = SubmitThreadInputResponseSchema.parse({
+          acceptedAs: "steering",
+          input: queuedThreadInputSummary(queuedInput),
+          queueLength: queuedInputs.length,
+          thread,
+        });
+        return secureJson(c, options.pairing, secureSessionsByTokenHash, response, 202);
+      }
+
       queuedInputs.push(queuedInput);
       queuedInputsByThreadId.set(threadId, queuedInputs);
 
@@ -3084,6 +3163,7 @@ export function createApp(options: AppOptions = {}) {
       threadId,
       workspacePath: knownThread.cwd ?? workspacePath,
     });
+    const desktopOwner = appServer ? await desktopOwnedThread(threadId) : undefined;
     const encoder = new TextEncoder();
     const secureSession = getSecureSessionForRequest(c, options.pairing, secureSessionsByTokenHash);
     let streamSettled = false;
@@ -3118,6 +3198,38 @@ export function createApp(options: AppOptions = {}) {
             });
           },
         });
+        if (desktopOwner) {
+          relayDebugLog("thread.stream.desktop_owned", {
+            hasPrompt: Boolean(runOptions.prompt),
+            threadId,
+          });
+          void streamDesktopOwnedThread({
+            controller,
+            desktopIpc: desktopOwner.desktopIpc,
+            encoder,
+            messagesByThreadId,
+            queuedInput: runOptions.prompt
+              ? {
+                  attachments: runOptions.attachments ?? [],
+                  id: randomUUID(),
+                  prompt: runOptions.prompt,
+                  runOptions,
+                  skills: runOptions.skills ?? [],
+                  workspacePath: knownThread.cwd ?? workspacePath,
+                }
+              : undefined,
+            rolloutPath: desktopOwner.rolloutPath,
+            secureSession,
+            signal: attachmentAbortController.signal,
+            threadId,
+            threads,
+          }).finally(() => {
+            streamSettled = true;
+            relayDebugLog("thread.stream.finished", { mode: "desktop", threadId });
+            closeStream();
+          });
+          return;
+        }
         if (!runOptions.prompt && appServer) {
           void streamRunningAppServerThread({
             appServer,
@@ -4374,6 +4486,260 @@ async function streamRunningAppServerThread(input: {
     removeAbortListener();
     cleanupHandlers();
   }
+}
+
+const desktopTailPollMs = 500;
+// Keeps the phone's stall watchdog from reconnecting while a long command writes nothing.
+const desktopTailHeartbeatMs = 20_000;
+const desktopTurnStartTimeoutMs = 60_000;
+
+async function sendDesktopOwnedTurn(input: {
+  desktopIpc: DesktopIpcClient;
+  queuedInput: QueuedThreadInput;
+  rolloutPath: string;
+  threadId: string;
+}) {
+  const { queuedInput } = input;
+  const turnInput = appServerTurnInput(
+    queuedInput.prompt,
+    queuedInput.attachments,
+    queuedInput.skills,
+  );
+  const activeTurn = await readRolloutActiveTurn(input.rolloutPath);
+  if (activeTurn.running) {
+    try {
+      await input.desktopIpc.steerTurn(input.threadId, {
+        clientUserMessageId: queuedInput.id,
+        cwd: queuedInput.workspacePath,
+        input: turnInput,
+      });
+      return { steered: true };
+    } catch (error) {
+      // The turn may have ended between the rollout read and the steer; start a new one instead.
+      if ((await readRolloutActiveTurn(input.rolloutPath)).running) {
+        throw error;
+      }
+    }
+  }
+  // Approval and sandbox settings stay with the desktop thread; only the phone's model choice
+  // and collaboration mode are forwarded.
+  await input.desktopIpc.startTurn(input.threadId, {
+    threadId: input.threadId,
+    clientUserMessageId: queuedInput.id,
+    input: turnInput,
+    ...(queuedInput.runOptions.model ? { model: queuedInput.runOptions.model } : {}),
+    ...(queuedInput.runOptions.reasoningEffort
+      ? { effort: queuedInput.runOptions.reasoningEffort }
+      : {}),
+    ...(queuedInput.runOptions.serviceTier
+      ? { serviceTier: queuedInput.runOptions.serviceTier }
+      : {}),
+    ...(queuedInput.runOptions.collaborationMode
+      ? { collaborationMode: appServerCollaborationMode(queuedInput.runOptions) }
+      : {}),
+  });
+  return { steered: false };
+}
+
+function desktopTurnErrorMessage(error: unknown) {
+  if (error instanceof DesktopIpcError) {
+    return `The Codex desktop app couldn't take this message (${error.code}). Try again from the desktop app.`;
+  }
+  return errorMessage(error);
+}
+
+async function streamDesktopOwnedThread(input: {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  desktopIpc: DesktopIpcClient;
+  encoder: TextEncoder;
+  messagesByThreadId: Map<string, ChatMessage[]>;
+  queuedInput?: QueuedThreadInput;
+  rolloutPath: string;
+  secureSession?: SecureSessionHandle;
+  signal: AbortSignal;
+  threadId: string;
+  threads: Map<string, ThreadMetadata>;
+}) {
+  const { controller, encoder, messagesByThreadId, secureSession, threadId, threads } = input;
+  const startOffset = (await rolloutFileSize(input.rolloutPath)) ?? 0;
+  let lineNumber = await countRolloutLinesBefore(input.rolloutPath, startOffset);
+  let offset = startOffset;
+  let threadSummary: ThreadMetadata;
+  let expectTurnStart = false;
+  let skipUserEcho = false;
+  let sawTurnStart = false;
+  let lastResult: string | undefined;
+
+  if (input.queuedInput) {
+    const displayPrompt = promptMarkdownWithSkills(
+      promptWithAttachmentReferences(input.queuedInput.prompt, input.queuedInput.attachments),
+      input.queuedInput.skills,
+    );
+    const userMessage = appendMessage(messagesByThreadId, threadId, {
+      role: "user",
+      content: displayPrompt,
+      details: chatMessageDetailsFromPromptContext(input.queuedInput),
+    });
+    threadSummary = updateThread(threads, messagesByThreadId, threadId, {
+      state: "running",
+      lastPrompt: displayPrompt,
+      lastError: undefined,
+    });
+    sendSse(controller, encoder, secureSession, {
+      type: "thread.message.created",
+      thread: threadSummary,
+      message: userMessage,
+    });
+    sendSse(controller, encoder, secureSession, {
+      type: "thread.state.changed",
+      thread: threadSummary,
+    });
+    try {
+      const sent = await sendDesktopOwnedTurn({
+        desktopIpc: input.desktopIpc,
+        queuedInput: input.queuedInput,
+        rolloutPath: input.rolloutPath,
+        threadId,
+      });
+      expectTurnStart = !sent.steered;
+      skipUserEcho = true;
+    } catch (error) {
+      relayDebugLog("desktop_ipc.turn.failed", { message: errorMessage(error), threadId });
+      threadSummary = updateThread(threads, messagesByThreadId, threadId, {
+        state: "failed",
+        lastError: desktopTurnErrorMessage(error),
+      });
+      const errorBody = apiError(
+        "codex_run_failed",
+        threadSummary.lastError ?? "Codex run failed.",
+      );
+      const message = appendMessage(messagesByThreadId, threadId, {
+        role: "error",
+        content: errorBody.error.message,
+        state: "failed",
+      });
+      sendSse(controller, encoder, secureSession, {
+        type: "thread.message.created",
+        thread: threadSummary,
+        message,
+      });
+      sendSse(controller, encoder, secureSession, {
+        type: "thread.error",
+        thread: threadSummary,
+        error: errorBody.error,
+      });
+      return;
+    }
+  } else {
+    threadSummary = updateThread(threads, messagesByThreadId, threadId, { state: "running" });
+    sendSse(controller, encoder, secureSession, {
+      type: "thread.state.changed",
+      thread: threadSummary,
+    });
+  }
+
+  const turnStartDeadline = Date.now() + desktopTurnStartTimeoutMs;
+  let lastSentAt = Date.now();
+  while (!input.signal.aborted) {
+    let chunk: Awaited<ReturnType<typeof readRolloutLinesFrom>>;
+    try {
+      chunk = await readRolloutLinesFrom(input.rolloutPath, offset);
+    } catch (error) {
+      relayDebugLog("desktop_rollout.read_failed", { message: errorMessage(error), threadId });
+      break;
+    }
+    offset = chunk.nextOffset;
+    for (const line of chunk.lines) {
+      lineNumber += 1;
+      if (!line.trim()) {
+        continue;
+      }
+      const lifecycle = rolloutLifecycleRecord(line);
+      if (lifecycle?.running) {
+        sawTurnStart = true;
+        continue;
+      }
+      if (lifecycle && (sawTurnStart || !expectTurnStart)) {
+        threadSummary = updateThread(threads, messagesByThreadId, threadId, {
+          state: "completed",
+          lastError: undefined,
+          ...(lastResult ? { lastResult } : {}),
+        });
+        sendSse(controller, encoder, secureSession, {
+          type: "thread.state.changed",
+          thread: threadSummary,
+        });
+        return;
+      }
+      const turnItem = rolloutCompletedTurnItem(line);
+      if (!turnItem) {
+        continue;
+      }
+      if (turnItem.item.type === "userMessage" && skipUserEcho) {
+        // The phone already shows the message it sent.
+        skipUserEcho = false;
+        continue;
+      }
+      const message = upsertAppServerItemMessage(
+        messagesByThreadId,
+        threadId,
+        turnItem.turnId,
+        turnItem.item,
+      );
+      if (!message) {
+        continue;
+      }
+      if (message.role === "assistant") {
+        lastResult = message.content;
+      }
+      threadSummary = updateThread(threads, messagesByThreadId, threadId, { state: "running" });
+      sendSse(controller, encoder, secureSession, {
+        type: message.role === "assistant" ? "thread.message.completed" : "thread.message.created",
+        thread: threadSummary,
+        message,
+      });
+    }
+    if (chunk.lines.length > 0) {
+      lastSentAt = Date.now();
+    } else if (Date.now() - lastSentAt > desktopTailHeartbeatMs) {
+      lastSentAt = Date.now();
+      sendSse(controller, encoder, secureSession, {
+        type: "thread.state.changed",
+        thread: threads.get(threadId) ?? threadSummary,
+      });
+    }
+    if (expectTurnStart && !sawTurnStart && Date.now() > turnStartDeadline) {
+      threadSummary = updateThread(threads, messagesByThreadId, threadId, {
+        state: "failed",
+        lastError: "The Codex desktop app didn't start the turn.",
+      });
+      sendSse(controller, encoder, secureSession, {
+        type: "thread.error",
+        thread: threadSummary,
+        error: apiError("codex_run_failed", threadSummary.lastError ?? "Codex run failed.").error,
+      });
+      return;
+    }
+    await abortableDelay(desktopTailPollMs, input.signal);
+  }
+}
+
+function abortableDelay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function runAppServerPromptStreamed(input: {
@@ -7592,16 +7958,55 @@ function isRolloutMessageLine(line: string) {
   );
 }
 
+type ThreadMessagePage = {
+  before?: string;
+  limit?: number;
+};
+
 function threadDetailResponse(input: {
   messages: ChatMessage[];
+  page?: ThreadMessagePage;
   pendingInputRequests: PendingInputRequest[];
   thread: ThreadMetadata;
 }) {
+  const page = pageThreadMessages(input.messages, input.page);
   return ThreadDetailResponseSchema.parse({
     thread: input.thread,
-    messages: input.messages,
+    messages: page.messages,
+    hasEarlierMessages: page.hasEarlierMessages,
     pendingInputRequests: input.pendingInputRequests,
   });
+}
+
+export function threadMessagePageFromQuery(query: { before?: string; limit?: string }) {
+  const limit = query.limit ? Number.parseInt(query.limit, 10) : undefined;
+  return {
+    before: query.before?.trim() || undefined,
+    limit: limit && Number.isFinite(limit) && limit > 0 ? limit : undefined,
+  } satisfies ThreadMessagePage;
+}
+
+// Long desktop threads have thousands of items; the phone loads the latest page and asks for
+// earlier ones on demand. Pages start at a user message so a turn isn't split mid-way.
+export function pageThreadMessages(messages: ChatMessage[], page: ThreadMessagePage = {}) {
+  let end = messages.length;
+  if (page.before) {
+    const beforeIndex = messages.findIndex((message) => message.id === page.before);
+    if (beforeIndex >= 0) {
+      end = beforeIndex;
+    }
+  }
+  if (!page.limit || end <= page.limit) {
+    return { hasEarlierMessages: false, messages: messages.slice(0, end) };
+  }
+  let start = end - page.limit;
+  const turnStart = messages.findIndex(
+    (message, index) => index >= start && index < end && message.role === "user",
+  );
+  if (turnStart > start) {
+    start = turnStart;
+  }
+  return { hasEarlierMessages: start > 0, messages: messages.slice(start, end) };
 }
 
 const threadDetailLargeTextPreviewLimit = 8 * 1024;
@@ -7768,8 +8173,12 @@ function mapAppServerItem(threadId: string, turn: AppServerTurn, item: AppServer
     }
     case "fileChange": {
       const fileItem = item as Extract<AppServerThreadItem, { type: "fileChange" }>;
-      const changes = fileItem.changes ?? [];
-      const patchPreview = largeTextPreview(fileItem.patch);
+      // Changes can carry full file contents or diffs; the patch preview below is the bounded copy.
+      const changes = (fileItem.changes ?? []).map((change) => ({
+        path: change.path,
+        kind: change.kind,
+      }));
+      const patchPreview = largeTextPreview(fileItem.patch ?? fileChangeDiffs(fileItem.changes));
       return ChatMessageSchema.parse({
         ...base,
         role: "tool",
@@ -8144,6 +8553,13 @@ function summarizeFileChanges(changes: Array<{ path: string; kind: string }>) {
   const shown = paths.slice(0, 3).join(", ");
   const suffix = paths.length > 3 ? ` and ${paths.length - 3} more` : "";
   return `${changes.length} file${changes.length === 1 ? "" : "s"} changed: ${shown}${suffix}`;
+}
+
+function fileChangeDiffs(changes: ReadonlyArray<{ path: string; diff?: unknown }> | undefined) {
+  const diffs = (changes ?? []).flatMap((change) =>
+    typeof change.diff === "string" && change.diff.trim() ? [change.diff] : [],
+  );
+  return diffs.length > 0 ? diffs.join("\n") : undefined;
 }
 
 function structuredStreamMessage(

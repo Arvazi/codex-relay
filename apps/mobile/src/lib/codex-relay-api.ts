@@ -974,11 +974,20 @@ export async function getRateLimits(): Promise<RateLimitsResponse> {
 
 export async function getThread(
   threadId: string,
-  options: { refresh?: boolean } = {},
+  options: { before?: string; limit?: number; refresh?: boolean } = {},
 ): Promise<ThreadDetailResponse> {
-  const path = options.refresh
-    ? `${apiPaths.thread(threadId)}?refresh=true`
-    : apiPaths.thread(threadId);
+  const query = new URLSearchParams();
+  if (options.refresh) {
+    query.set("refresh", "true");
+  }
+  if (options.limit) {
+    query.set("limit", String(options.limit));
+  }
+  if (options.before) {
+    query.set("before", options.before);
+  }
+  const search = query.toString();
+  const path = search ? `${apiPaths.thread(threadId)}?${search}` : apiPaths.thread(threadId);
   return request(path, undefined, ThreadDetailResponseSchema.parse);
 }
 

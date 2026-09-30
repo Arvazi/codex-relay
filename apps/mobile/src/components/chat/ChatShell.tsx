@@ -40,12 +40,15 @@ export function ChatShell({
   collaborationMode,
   goal,
   inputNativeID,
+  hasEarlierMessages,
   isAttachingImage,
+  isLoadingEarlierMessages,
   isLoadingMessages,
   isRunning,
   leadingAction,
   messages,
   onAttachImage,
+  onLoadEarlierMessages,
   onCancel,
   onCollaborationModeChange,
   onAddPlanContext,
@@ -85,12 +88,15 @@ export function ChatShell({
   collaborationMode: ThreadCollaborationMode;
   goal?: ThreadGoal | null;
   inputNativeID: string;
+  hasEarlierMessages?: boolean;
   isAttachingImage: boolean;
+  isLoadingEarlierMessages?: boolean;
   isLoadingMessages?: boolean;
   isRunning: boolean;
   leadingAction: ChatShellAction;
   messages: ChatMessage[];
   onAttachImage: () => Promise<void> | void;
+  onLoadEarlierMessages?: () => void;
   onCancel: () => void;
   onCollaborationModeChange: (mode: ThreadCollaborationMode) => void;
   onAddPlanContext?: (context: string) => void;
@@ -168,7 +174,10 @@ export function ChatShell({
           >
             <View style={styles.timeline}>
               <MessageTimeline
+                hasEarlierMessages={hasEarlierMessages}
                 isLoading={isLoadingMessages}
+                isLoadingEarlierMessages={isLoadingEarlierMessages}
+                onLoadEarlierMessages={onLoadEarlierMessages}
                 isRunning={isRunning}
                 keyboardLayoutFrozen={isKeyboardLayoutFrozen}
                 messages={visibleMessages}

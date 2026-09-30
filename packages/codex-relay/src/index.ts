@@ -7,6 +7,7 @@ import pc from "picocolors";
 import qrcode from "qrcode-terminal";
 
 import { createApp } from "./app.js";
+import { createDesktopIpcClient } from "./desktop-ipc.js";
 import { CodexAppServerClient } from "./app-server.js";
 import {
   resolveCodexAppServerMode,
@@ -86,6 +87,12 @@ const relayAppServer =
         },
       })
     : undefined;
+// The Codex desktop app owns threads it has open; its IPC router lets the relay steer them.
+const desktopIpc =
+  process.platform === "darwin" && process.env.CODEX_RELAY_DESKTOP_IPC?.trim() !== "off"
+    ? createDesktopIpcClient()
+    : undefined;
+process.once("exit", () => desktopIpc?.close());
 if (relayAppServer) {
   await relayAppServer.initialize();
   process.once("SIGINT", () => stopRelayAppServer(130));
@@ -97,6 +104,7 @@ serve(
   {
     fetch: createApp({
       appServer: relayAppServer,
+      desktopIpc,
       pairing: {
         approvalSecret,
         dangerouslyAutoApprove,
@@ -154,9 +162,7 @@ serve(
   (info) => {
     activePort = info.port;
     const listenUrl = `http://${info.address}:${info.port}`;
-    registerLocalConnectUrls(() =>
-      getConnectUrlCandidates({ listenUrl, port: info.port }),
-    );
+    registerLocalConnectUrls(() => getConnectUrlCandidates({ listenUrl, port: info.port }));
     startPublicReachability(info.port, (message) => {
       console.log(`${color.prompt("›")} ${message}`);
       const nextCandidates = advertisedConnectUrls();
