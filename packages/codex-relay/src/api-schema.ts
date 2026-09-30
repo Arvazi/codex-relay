@@ -2,6 +2,9 @@ import { z } from "zod";
 
 export const IsoDateTimeSchema = z.string().datetime();
 
+// Not 8787: common local tools (Wrangler, mcp-remote OAuth callbacks) claim that port.
+export const defaultCodexRelayPort = 8790;
+
 export const ThreadStateSchema = z.enum(["idle", "running", "completed", "failed"]);
 
 export const ChatMessageRoleSchema = z.enum([

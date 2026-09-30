@@ -6,7 +6,7 @@ describe("pairing commands", () => {
   it("uses the latest relay package for setup and default-port approval", () => {
     expect(relayStartCommand).toBe("npx codex-relay@latest");
     expect(approvalCommand("ABCD-1234")).toBe("npx codex-relay@latest approve ABCD-1234");
-    expect(approvalCommand("ABCD-1234", "http://192.168.1.4:8787")).toBe(
+    expect(approvalCommand("ABCD-1234", "http://192.168.1.4:8790")).toBe(
       "npx codex-relay@latest approve ABCD-1234",
     );
   });

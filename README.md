@@ -182,11 +182,11 @@ release pull request and publishes it after that pull request is merged. See
 
 ## Configuration
 
-The relay listens on `0.0.0.0:8787` by default.
+The relay listens on `0.0.0.0:8790` by default.
 
 | Variable                      | Purpose                                                             |
 | ----------------------------- | ------------------------------------------------------------------- |
-| `PORT`                        | Server port. Defaults to `8787`.                                    |
+| `PORT`                        | Server port. Defaults to `8790`.                                    |
 | `HOST`                        | Listen host. Defaults to `0.0.0.0`.                                 |
 | `CODEX_RELAY_WORKSPACE_PATH`  | Workspace path Codex should use. Defaults to the current directory. |
 | `CODEX_RELAY_AUTH_DB_PATH`    | Pairing and session database path.                                  |
@@ -221,7 +221,7 @@ Connection checklist:
   Tailscale or another reachable private network?
 - Can the phone open the exact `Mobile:` URL printed by the relay?
 - Does the computer firewall allow inbound traffic on the relay port, usually
-  `8787`?
+  `8790`?
 
 ## License
 

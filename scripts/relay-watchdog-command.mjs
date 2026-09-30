@@ -15,9 +15,16 @@ export function relayServiceCommand(cliArgs) {
   };
 }
 
+// Keep in sync with defaultCodexRelayPort in packages/codex-relay/src/api-schema.ts.
+const defaultRelayPort = "8790";
+
+export function relayPort(env = process.env) {
+  return env.CODEX_RELAY_PORT ?? env.PORT ?? defaultRelayPort;
+}
+
 export function relayHealthUrl(env = process.env) {
   const host = env.RELAY_HEALTH_CHECK_HOST ?? "127.0.0.1";
-  const port = env.CODEX_RELAY_PORT ?? env.PORT ?? "8787";
+  const port = relayPort(env);
   return `http://${host}:${port}/version`;
 }
 

@@ -1,7 +1,9 @@
 import AppKit
 
 private let repoPath = "/Users/arianvaziri/Projects/codex-relay"
-private let healthURL = URL(string: "http://127.0.0.1:8787/version")!
+// Keep in sync with defaultCodexRelayPort in packages/codex-relay/src/api-schema.ts.
+private let relayPort = 8790
+private let healthURL = URL(string: "http://127.0.0.1:\(relayPort)/version")!
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow!
@@ -233,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     metroProcess = process
   }
 
-  private func listenerPID(port: Int = 8787) -> pid_t? {
+  private func listenerPID(port: Int = relayPort) -> pid_t? {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
     process.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]

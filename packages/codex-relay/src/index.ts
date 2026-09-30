@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import pc from "picocolors";
 import qrcode from "qrcode-terminal";
 
+import { defaultCodexRelayPort } from "./api-schema.js";
 import { createApp } from "./app.js";
 import { createDesktopIpcClient } from "./desktop-ipc.js";
 import { CodexAppServerClient } from "./app-server.js";
@@ -35,7 +36,7 @@ import {
   type ServerIdentity,
 } from "./secure-transport.js";
 
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(process.env.PORT ?? defaultCodexRelayPort);
 let activePort = port;
 const hostname = process.env.HOST ?? "0.0.0.0";
 const dangerouslyAutoApprove = process.env.CODEX_RELAY_DANGEROUSLY_AUTO_APPROVE === "1";
@@ -397,7 +398,7 @@ async function writeBackgroundPid() {
 }
 
 function formatApprovalCommand(approvalCode: string, activePort: number) {
-  return activePort === 8787
+  return activePort === defaultCodexRelayPort
     ? `${npxCommand} approve ${approvalCode}`
     : `PORT=${activePort} ${npxCommand} approve ${approvalCode}`;
 }

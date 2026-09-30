@@ -2,7 +2,12 @@ import { spawn } from "node:child_process";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { isRelayHealthy, relayHealthUrl, relayServiceCommand } from "./relay-watchdog-command.mjs";
+import {
+  isRelayHealthy,
+  relayHealthUrl,
+  relayPort,
+  relayServiceCommand,
+} from "./relay-watchdog-command.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const logPath = resolve(root, ".codex-relay/relay-watchdog.log");
@@ -78,7 +83,7 @@ function spawnService(serviceCommand) {
     env: {
       ...process.env,
       NODE_ENV: "development",
-      PORT: process.env.CODEX_RELAY_PORT ?? process.env.PORT ?? "8787",
+      PORT: relayPort(),
     },
     stdio: "inherit",
   });

@@ -7,8 +7,8 @@ This pnpm monorepo contains a mobile Codex client backed by a local server. `app
 ## Build, Test, and Development Commands
 
 - `pnpm install`: install workspace dependencies with pnpm 10.
-- `pnpm dev`: run the local server with `tsx watch`; it listens on port `8787`.
-- `pnpm dev:server`: run the local server with `tsx watch`; it listens on port `8787`.
+- `pnpm dev`: run the local server with `tsx watch`; it listens on port `8790`.
+- `pnpm dev:server`: run the local server with `tsx watch`; it listens on port `8790`.
 - `pnpm dev:mobile`: start Expo Metro for a development client.
 - `pnpm dev:mobile:ios` / `pnpm dev:mobile:android`: build and run the native dev client.
 - `pnpm lint`: run oxlint plus oxfmt checks across `apps` and `packages`.
@@ -41,4 +41,4 @@ The short Git history uses simple Conventional Commit-style messages such as `ch
 
 ## Security & Configuration Tips
 
-Do not commit local secrets, device-specific URLs, or generated native build output. Physical devices usually need `EXPO_PUBLIC_CODEX_RELAY_SERVER_URL=http://<host-lan-ip>:8787`; simulators and web can use the default `127.0.0.1` value.
+Do not commit local secrets, device-specific URLs, or generated native build output. Physical devices usually need `EXPO_PUBLIC_CODEX_RELAY_SERVER_URL=http://<host-lan-ip>:8790`; simulators and web can use the default `127.0.0.1` value.

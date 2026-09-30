@@ -9,7 +9,7 @@ import { dirname } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { apiPaths } from "./api-schema.js";
+import { apiPaths, defaultCodexRelayPort } from "./api-schema.js";
 import {
   readRunningRelayPid,
   stopRunningRelay,
@@ -447,7 +447,7 @@ async function handleServerStartError(error: unknown) {
     console.error(
       `  lsof -nP ${codexRelayDataPath("auth.db")} ${codexRelayDataPath("auth.db-wal")}`,
     );
-    console.error("  lsof -nP -iTCP:8787 -sTCP:LISTEN");
+    console.error(`  lsof -nP -iTCP:${defaultCodexRelayPort} -sTCP:LISTEN`);
     console.error("");
     console.error("Then stop that process with:");
     console.error("  kill -TERM <pid>");
@@ -468,7 +468,7 @@ async function readApprovalSecret() {
 
 async function getApprovalEndpoint() {
   const state = await readServerState();
-  const port = process.env.PORT ? Number(process.env.PORT) : (state?.port ?? 8787);
+  const port = process.env.PORT ? Number(process.env.PORT) : (state?.port ?? defaultCodexRelayPort);
   const host = process.env.HOST ?? state?.host ?? "127.0.0.1";
   const connectHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
   return `http://${connectHost}:${port}`;

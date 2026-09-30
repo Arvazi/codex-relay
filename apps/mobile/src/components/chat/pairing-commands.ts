@@ -1,8 +1,10 @@
+import { defaultCodexRelayPort } from "codex-relay/api-schema";
+
 export const relayStartCommand = "npx codex-relay@latest";
 
 export function approvalCommand(approvalCode: string, serverUrl?: string) {
   const port = approvalPort(serverUrl);
-  return port && port !== "8787"
+  return port && port !== String(defaultCodexRelayPort)
     ? `PORT=${port} ${relayStartCommand} approve ${approvalCode}`
     : `${relayStartCommand} approve ${approvalCode}`;
 }

@@ -148,11 +148,11 @@ Start the relay and automatically approve mobile pairing requests. Use this only
 
 ## Configuration
 
-The relay listens on `0.0.0.0:8787` by default. Configure it with environment variables:
+The relay listens on `0.0.0.0:8790` by default. Configure it with environment variables:
 
 | Variable                               | Purpose                                                                                                                                                         |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                 | Server port. Defaults to `8787`.                                                                                                                                |
+| `PORT`                                 | Server port. Defaults to `8790`.                                                                                                                                |
 | `HOST`                                 | Listen host. Defaults to `0.0.0.0`.                                                                                                                             |
 | `CODEX_RELAY_WORKSPACE_PATH`           | Workspace path Codex should use. Defaults to the directory where you run `npx codex-relay@latest`.                                                              |
 | `CODEX_RELAY_AUTH_DB_PATH`             | Pairing and session database path. Defaults to `.codex-relay/auth.db`.                                                                                          |
@@ -207,4 +207,4 @@ Connection checklist:
 - Are the phone and computer on the same Wi-Fi or LAN?
 - If keeping the same network is difficult, are both devices connected through Tailscale or another reachable private network?
 - Can the phone open the exact `Mobile:` URL printed by the relay?
-- Does the computer firewall allow inbound traffic on the relay port, usually `8787`?
+- Does the computer firewall allow inbound traffic on the relay port, usually `8790`?
