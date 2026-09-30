@@ -1,16 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ListThreadsResponseSchema } from "../src/api-schema.js";
-import {
-  CodexAppServerClient,
-  type AppServerNotification,
-  type AppServerRequest,
-  type AppServerThread,
-} from "../src/app-server.js";
+import { CodexAppServerClient, type AppServerThread } from "../src/app-server.js";
 import { createApp } from "../src/app.js";
 import type { CodexClient } from "../src/codex.js";
-import { createTursoPairingSessionStore } from "../src/pairing-store.js";
-import type { PushNotificationSender, RelayPushNotification } from "../src/push-notifications.js";
 
 function unavailableCodex(): CodexClient {
   return {
@@ -155,112 +148,5 @@ describe("subagent thread boundaries", () => {
     // Then
     expect(response.status).toBe(404);
     expect(rollbackThread).not.toHaveBeenCalled();
-  });
-
-  it("suppresses subagent pushes when the observer did not see the spawn event", async () => {
-    // Given
-    const sessions = await createTursoPairingSessionStore(":memory:");
-    await sessions.createSession("client-token", {
-      clientSessionId: "phone-session",
-      expiresAt: Date.now() + 60_000,
-    });
-    await sessions.upsertPushNotificationSubscription({
-      actionRequired: true,
-      clientSessionId: "phone-session",
-      expoPushToken: "ExponentPushToken[phone-token]",
-      includeRemainingUsage: false,
-      platform: "ios",
-      turnTerminal: true,
-    });
-    const notificationHandlers = new Set<(notification: AppServerNotification) => void>();
-    const requestHandlers = new Set<(request: AppServerRequest) => void>();
-    const appServer = new CodexAppServerClient();
-    vi.spyOn(appServer, "readThread").mockImplementation(async (threadId) =>
-      appServerThread(threadId, threadId === "subagent-thread" ? "parent-thread" : null),
-    );
-    vi.spyOn(appServer, "onNotification").mockImplementation((handler) => {
-      notificationHandlers.add(handler);
-      return () => notificationHandlers.delete(handler);
-    });
-    vi.spyOn(appServer, "onRequest").mockImplementation((handler) => {
-      requestHandlers.add(handler);
-      return () => requestHandlers.delete(handler);
-    });
-    const sent: RelayPushNotification[][] = [];
-    const sender: PushNotificationSender = {
-      async send(notifications) {
-        sent.push([...notifications]);
-        return { invalidExpoPushTokens: [] };
-      },
-    };
-    createApp({
-      appServer,
-      codex: unavailableCodex(),
-      pairing: {
-        createClientToken: () => "unused-client-token",
-        hashClientToken: (token) => token,
-        sessions,
-      },
-      pushNotificationSender: sender,
-    });
-
-    // When
-    for (const handler of requestHandlers) {
-      handler({
-        id: 1,
-        method: "item/tool/requestUserInput",
-        params: { threadId: "subagent-thread", turnId: "subagent-turn" },
-      });
-    }
-    for (const handler of notificationHandlers) {
-      handler({
-        method: "turn/completed",
-        params: {
-          status: "completed",
-          threadId: "subagent-thread",
-          turnId: "subagent-turn",
-        },
-      });
-    }
-    for (const handler of requestHandlers) {
-      handler({
-        id: 2,
-        method: "item/tool/requestUserInput",
-        params: { threadId: "parent-thread", turnId: "parent-turn" },
-      });
-    }
-    for (const handler of notificationHandlers) {
-      handler({
-        method: "turn/completed",
-        params: { status: "completed", threadId: "parent-thread", turnId: "parent-turn" },
-      });
-    }
-    await vi.waitFor(() =>
-      expect(sent.flat().some((notification) => notification.data.intent === "turn_terminal")).toBe(
-        true,
-      ),
-    );
-
-    // Then
-    expect(sent).toEqual([
-      [
-        expect.objectContaining({
-          data: {
-            intent: "action_required",
-            threadId: "parent-thread",
-            turnId: "parent-turn",
-          },
-        }),
-      ],
-      [
-        expect.objectContaining({
-          data: {
-            intent: "turn_terminal",
-            threadId: "parent-thread",
-            turnId: "parent-turn",
-          },
-        }),
-      ],
-    ]);
   });
 });

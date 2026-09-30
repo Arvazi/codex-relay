@@ -95,28 +95,6 @@ export const RuntimePreferencesResponseSchema = z.object({
   workspacePath: z.string().trim().min(1).optional(),
 });
 
-export const PushNotificationIntentSchema = z.enum(["turn_terminal", "action_required"]);
-
-export const PushNotificationPreferencesSchema = z.object({
-  actionRequired: z.boolean(),
-  includeRemainingUsage: z.boolean().default(false),
-  turnTerminal: z.boolean(),
-});
-
-export const RegisterPushNotificationRequestSchema = z.object({
-  expoPushToken: z
-    .string()
-    .trim()
-    .regex(/^(?:Expo|Exponent)PushToken\[[^\]\r\n]{1,512}\]$/),
-  platform: z.enum(["android", "ios"]),
-  preferences: PushNotificationPreferencesSchema,
-});
-
-export const PushNotificationSettingsResponseSchema = z.object({
-  preferences: PushNotificationPreferencesSchema,
-  registered: z.boolean(),
-});
-
 export const CodexModelSchema = z.object({
   id: z.string().min(1),
   model: z.string().min(1),
@@ -182,15 +160,6 @@ export const RateLimitsResponseSchema = z.object({
 
 export function rateLimitRemainingPercent(usedPercent: number) {
   return 100 - Math.max(0, Math.min(100, usedPercent));
-}
-
-export function lowestRateLimitRemainingPercent(buckets: readonly RateLimitBucket[]) {
-  const remaining = buckets.flatMap((bucket) =>
-    [bucket.primary, bucket.secondary].flatMap((window) =>
-      window ? [rateLimitRemainingPercent(window.usedPercent)] : [],
-    ),
-  );
-  return remaining.length > 0 ? Math.min(...remaining) : undefined;
 }
 
 export const ThreadContextWindowResponseSchema = z.object({
@@ -813,12 +782,6 @@ export type RuntimePreferencesByWorkspacePath = z.infer<
   typeof RuntimePreferencesByWorkspacePathSchema
 >;
 export type RuntimePreferencesResponse = z.infer<typeof RuntimePreferencesResponseSchema>;
-export type PushNotificationIntent = z.infer<typeof PushNotificationIntentSchema>;
-export type PushNotificationPreferences = z.infer<typeof PushNotificationPreferencesSchema>;
-export type RegisterPushNotificationRequest = z.infer<typeof RegisterPushNotificationRequestSchema>;
-export type PushNotificationSettingsResponse = z.infer<
-  typeof PushNotificationSettingsResponseSchema
->;
 export type ContextWindowUsage = z.infer<typeof ContextWindowUsageSchema>;
 export type RateLimitBucket = z.infer<typeof RateLimitBucketSchema>;
 export type RateLimitWindow = z.infer<typeof RateLimitWindowSchema>;
@@ -1103,7 +1066,6 @@ export const apiPaths = {
   status: "/v1/status",
   connectUrls: "/v1/connect-urls",
   preferences: "/v1/preferences",
-  pushNotifications: "/v1/notifications/push",
   rateLimits: "/v1/rate-limits",
   models: "/v1/models",
   skills: "/v1/skills",
@@ -1181,31 +1143,6 @@ export function createOpenApiDocument() {
           responses: {
             "200": jsonResponse("RuntimePreferencesResponse"),
             "400": jsonResponse("ErrorResponse"),
-          },
-        },
-      },
-      "/v1/notifications/push": {
-        get: {
-          summary: "Read push notification settings for this paired device",
-          responses: {
-            "200": jsonResponse("PushNotificationSettingsResponse"),
-            "401": jsonResponse("ErrorResponse"),
-          },
-        },
-        put: {
-          summary: "Register push notifications for this paired device",
-          requestBody: jsonRequest("RegisterPushNotificationRequest"),
-          responses: {
-            "200": jsonResponse("PushNotificationSettingsResponse"),
-            "400": jsonResponse("ErrorResponse"),
-            "401": jsonResponse("ErrorResponse"),
-          },
-        },
-        delete: {
-          summary: "Remove push notifications for this paired device",
-          responses: {
-            "200": jsonResponse("PushNotificationSettingsResponse"),
-            "401": jsonResponse("ErrorResponse"),
           },
         },
       },
@@ -1655,35 +1592,6 @@ export function createOpenApiDocument() {
             },
             threadId: { type: "string" },
             workspacePath: { type: "string" },
-          },
-        },
-        PushNotificationPreferences: {
-          type: "object",
-          required: ["actionRequired", "turnTerminal"],
-          properties: {
-            actionRequired: { type: "boolean" },
-            includeRemainingUsage: { type: "boolean", default: false },
-            turnTerminal: { type: "boolean" },
-          },
-        },
-        RegisterPushNotificationRequest: {
-          type: "object",
-          required: ["expoPushToken", "platform", "preferences"],
-          properties: {
-            expoPushToken: {
-              type: "string",
-              pattern: "^(?:Expo|Exponent)PushToken\\[[^\\]\\r\\n]{1,512}\\]$",
-            },
-            platform: { type: "string", enum: ["android", "ios"] },
-            preferences: { $ref: "#/components/schemas/PushNotificationPreferences" },
-          },
-        },
-        PushNotificationSettingsResponse: {
-          type: "object",
-          required: ["preferences", "registered"],
-          properties: {
-            preferences: { $ref: "#/components/schemas/PushNotificationPreferences" },
-            registered: { type: "boolean" },
           },
         },
         WorkspaceDirectoryEntry: {

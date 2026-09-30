@@ -9,8 +9,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import Constants from "expo-constants";
 import { useFonts } from "expo-font";
-import * as Notifications from "expo-notifications";
-import { router, Stack } from "expo-router";
+import { Stack } from "expo-router";
 import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
@@ -19,23 +18,15 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
-import { useInitialPushNotificationRegistration } from "@/hooks/use-initial-push-notification-registration";
 import { addHotUpdaterLog, formatHotUpdaterProgress } from "@/lib/hot-updater-logs";
-import {
-  configurePushNotificationPresentation,
-  notificationResponseThreadId,
-  supportsPushNotifications,
-} from "@/lib/push-notifications";
 import {
   persistedQueryMaxAgeMs,
   queryClientPersister,
   shouldPersistQuery,
 } from "@/lib/query-persistence";
 import { restoreChatStoreFromQueryCache } from "@/lib/server-state-hydration";
-import { setActiveThread } from "@/state/chat-store";
 
 void SplashScreen.preventAutoHideAsync();
-configurePushNotificationPresentation();
 
 const appTheme = {
   ...DarkTheme,
@@ -125,7 +116,6 @@ async function checkForLaunchUpdate() {
 }
 
 function TabLayout() {
-  useInitialPushNotificationRegistration();
   const [fontsLoaded] = useFonts({
     GeistMono: require("../../assets/fonts/GeistMono-Regular.ttf"),
     "GeistMono-Medium": require("../../assets/fonts/GeistMono-Medium.ttf"),
@@ -145,29 +135,6 @@ function TabLayout() {
     void checkForLaunchUpdate().catch(() => undefined);
 
     return unsubscribeProgress;
-  }, []);
-
-  useEffect(() => {
-    if (!supportsPushNotifications()) {
-      return;
-    }
-    const openNotificationThread = (response: Notifications.NotificationResponse) => {
-      const threadId = notificationResponseThreadId(response);
-      if (!threadId) {
-        return;
-      }
-      setActiveThread(threadId);
-      router.replace("/");
-      Notifications.clearLastNotificationResponse();
-    };
-
-    const mostRecentResponse = Notifications.getLastNotificationResponse();
-    if (mostRecentResponse) {
-      openNotificationThread(mostRecentResponse);
-    }
-    const subscription =
-      Notifications.addNotificationResponseReceivedListener(openNotificationThread);
-    return () => subscription.remove();
   }, []);
 
   if (!fontsLoaded) {

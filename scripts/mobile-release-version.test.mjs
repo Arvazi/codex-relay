@@ -118,17 +118,6 @@ test("waits for the relay package release before preparing the mobile OTA", () =
   );
 });
 
-test("prepares the production iOS App Store configuration", () => {
-  const easConfig = JSON.parse(
-    readFileSync(new URL("../apps/mobile/eas.json", import.meta.url), "utf8"),
-  );
-
-  assert.equal(easConfig.build.production.distribution, "store");
-  assert.equal(easConfig.build.production.autoIncrement, true);
-  assert.equal(easConfig.build.production.ios.buildConfiguration, "Release");
-  assert.equal(easConfig.submit.production.ios.ascAppId, "6764463488");
-});
-
 test("checks v1 infrastructure and Bundle state around an OTA deploy", () => {
   const releaseWorkflow = readFileSync(
     new URL("../.github/workflows/release.yml", import.meta.url),

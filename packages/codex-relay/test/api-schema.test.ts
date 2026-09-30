@@ -179,31 +179,6 @@ describe("WorkspaceTailscaleServe schemas", () => {
   });
 });
 
-describe("push notification schemas", () => {
-  it("exposes the paired-device push notification endpoint", () => {
-    expect(apiPaths.pushNotifications).toBe("/v1/notifications/push");
-    expect(createOpenApiDocument().paths[apiPaths.pushNotifications]).toMatchObject({
-      delete: expect.any(Object),
-      get: expect.any(Object),
-      put: expect.any(Object),
-    });
-  });
-
-  it("accepts a generic Expo push registration without chat content", () => {
-    expect(
-      apiSchema.RegisterPushNotificationRequestSchema.parse({
-        expoPushToken: "ExponentPushToken[phone-token]",
-        platform: "ios",
-        preferences: { actionRequired: true, turnTerminal: false },
-      }),
-    ).toEqual({
-      expoPushToken: "ExponentPushToken[phone-token]",
-      platform: "ios",
-      preferences: { actionRequired: true, includeRemainingUsage: false, turnTerminal: false },
-    });
-  });
-});
-
 describe("thread mutation OpenAPI paths", () => {
   it.each(["/v1/threads/{threadId}/name", "/v1/threads/{threadId}/rollback"] as const)(
     "declares the threadId path parameter for %s",

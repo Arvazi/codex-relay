@@ -93,7 +93,6 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
       ],
       "expo-font",
       "expo-image",
-      "expo-notifications",
       "expo-system-ui",
       "expo-web-browser",
       [
@@ -126,9 +125,6 @@ export default function appConfig(_context: ConfigContext): ExpoConfig {
     extra: {
       hotUpdaterApiKey,
       router: {},
-      eas: {
-        projectId: "6659e28f-2ac7-4055-8f56-7b4ca5e65847",
-      },
     },
   };
 }

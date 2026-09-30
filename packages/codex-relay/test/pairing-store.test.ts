@@ -50,83 +50,6 @@ describe("pairing session store", () => {
     expect(await memoryDatabaseEntries()).toEqual(temporaryEntriesBefore);
   });
 
-  it("keeps push subscriptions with a stable paired device across token rotation", async () => {
-    const sessions = await createTursoPairingSessionStore(":memory:");
-    const expiresAt = Date.now() + 60_000;
-    await sessions.createSession("old-client-token", {
-      clientSessionId: "phone-session",
-      expiresAt,
-    });
-    await sessions.upsertPushNotificationSubscription({
-      actionRequired: true,
-      clientSessionId: "phone-session",
-      expoPushToken: "ExponentPushToken[phone-token]",
-      includeRemainingUsage: true,
-      platform: "ios",
-      turnTerminal: true,
-    });
-
-    await sessions.rotateSession("old-client-token", "new-client-token", {
-      clientSessionId: "phone-session",
-      expiresAt,
-    });
-
-    expect(await sessions.getPushNotificationSubscription("phone-session")).toEqual({
-      actionRequired: true,
-      clientSessionId: "phone-session",
-      expoPushToken: "ExponentPushToken[phone-token]",
-      includeRemainingUsage: true,
-      platform: "ios",
-      turnTerminal: true,
-    });
-    expect(await sessions.listActivePushNotificationSubscriptions()).toEqual([
-      expect.objectContaining({ clientSessionId: "phone-session" }),
-    ]);
-  });
-
-  it("keeps paired sessions and push subscriptions after the legacy expiry timestamp", async () => {
-    const sessions = await createTursoPairingSessionStore(":memory:");
-    await sessions.createSession("expired-client-token", {
-      clientSessionId: "expired-phone",
-      expiresAt: Date.now() - 1,
-    });
-    await sessions.upsertPushNotificationSubscription({
-      actionRequired: true,
-      clientSessionId: "expired-phone",
-      expoPushToken: "ExponentPushToken[expired-phone]",
-      includeRemainingUsage: false,
-      platform: "android",
-      turnTerminal: true,
-    });
-
-    expect(await sessions.listActivePushNotificationSubscriptions()).toEqual([
-      expect.objectContaining({ clientSessionId: "expired-phone" }),
-    ]);
-    await sessions.pruneExpiredPendingPairings(Date.now());
-    expect(await sessions.getValidSession("expired-client-token")).toMatchObject({
-      clientSessionId: "expired-phone",
-    });
-    expect(await sessions.getPushNotificationSubscription("expired-phone")).toMatchObject({
-      clientSessionId: "expired-phone",
-    });
-
-    await sessions.createSession("active-client-token", {
-      clientSessionId: "active-phone",
-      expiresAt: Date.now() + 60_000,
-    });
-    await sessions.upsertPushNotificationSubscription({
-      actionRequired: false,
-      clientSessionId: "active-phone",
-      expoPushToken: "ExponentPushToken[active-phone]",
-      includeRemainingUsage: false,
-      platform: "android",
-      turnTerminal: true,
-    });
-    await sessions.clearAll();
-
-    expect(await sessions.getPushNotificationSubscription("active-phone")).toBeUndefined();
-  });
-
   it("still prunes expired pending pairing requests", async () => {
     const sessions = await createTursoPairingSessionStore(":memory:");
     await sessions.createPendingPairing({
@@ -243,7 +166,8 @@ describe("pairing session store", () => {
         ]),
       );
       expect(pendingColumns).toContain("client_session_id");
-      expect(pushNotificationColumns).toContain("include_remaining_usage_enabled");
+      // The removed Expo push subscriptions table is dropped from older databases.
+      expect(pushNotificationColumns).toEqual([]);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

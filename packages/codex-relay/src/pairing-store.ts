@@ -26,34 +26,16 @@ export type PendingPairing = {
   serverUrl: string;
 };
 
-export type PushNotificationPreferences = {
-  actionRequired: boolean;
-  includeRemainingUsage: boolean;
-  turnTerminal: boolean;
-};
-
-export type PushNotificationSubscription = PushNotificationPreferences & {
-  clientSessionId: string;
-  expoPushToken: string;
-  platform: "android" | "ios";
-};
-
 export type PairingSessionStore = {
   approvePendingPairing(approvalCode: string, now: number): Promise<PendingPairing | undefined>;
   clearAll(): Promise<{ pendingPairingsCleared: number; sessionsCleared: number }>;
   countActive(): Promise<number>;
-  deletePushNotificationSubscription(clientSessionId: string): Promise<void>;
-  deletePushNotificationSubscriptionsByExpoPushToken(expoPushToken: string): Promise<void>;
   createPendingPairing(pairing: PendingPairing): Promise<void>;
   createSession(tokenHash: string, session: ClientSession): Promise<number>;
   deleteSession(tokenHash: string): Promise<void>;
   deletePendingPairing(approvalCode: string): Promise<void>;
   getPendingPairing(approvalCode: string, now: number): Promise<PendingPairing | undefined>;
-  getPushNotificationSubscription(
-    clientSessionId: string,
-  ): Promise<PushNotificationSubscription | undefined>;
   getValidSession(tokenHash: string): Promise<ClientSession | undefined>;
-  listActivePushNotificationSubscriptions(): Promise<PushNotificationSubscription[]>;
   pruneExpiredPendingPairings(now: number): Promise<void>;
   rotateSession(
     oldTokenHash: string,
@@ -61,7 +43,6 @@ export type PairingSessionStore = {
     session: ClientSession,
   ): Promise<number>;
   updateSecureSession(tokenHash: string, secureSession: SecureSession): Promise<void>;
-  upsertPushNotificationSubscription(subscription: PushNotificationSubscription): Promise<void>;
 };
 
 export async function createTursoPairingSessionStore(path: string): Promise<PairingSessionStore> {
@@ -98,19 +79,10 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
       updated_at INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS push_notification_subscriptions (
-      client_session_id TEXT PRIMARY KEY,
-      expo_push_token TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      turn_terminal_enabled INTEGER NOT NULL,
-      action_required_enabled INTEGER NOT NULL,
-      include_remaining_usage_enabled INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
+    -- Push notifications (via Expo) were removed; drop the stored device tokens.
+    DROP TABLE IF EXISTS push_notification_subscriptions;
   `);
   await ensurePairingSessionColumns();
-  await ensurePushNotificationSubscriptionColumns();
 
   async function countActive() {
     const row = await db
@@ -188,7 +160,6 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
           .get();
         await transaction.prepare("DELETE FROM pairing_sessions").run();
         await transaction.prepare("DELETE FROM pending_pairings").run();
-        await transaction.prepare("DELETE FROM push_notification_subscriptions").run();
         return {
           pendingPairingsCleared: Number(pendingRow?.count ?? 0),
           sessionsCleared: Number(sessionRow?.count ?? 0),
@@ -197,16 +168,6 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
       return result;
     },
     countActive,
-    async deletePushNotificationSubscription(clientSessionId) {
-      await db
-        .prepare("DELETE FROM push_notification_subscriptions WHERE client_session_id = ?")
-        .run(clientSessionId);
-    },
-    async deletePushNotificationSubscriptionsByExpoPushToken(expoPushToken) {
-      await db
-        .prepare("DELETE FROM push_notification_subscriptions WHERE expo_push_token = ?")
-        .run(expoPushToken);
-    },
     async createPendingPairing(pairing) {
       const now = Date.now();
       await db
@@ -288,21 +249,6 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
     deleteSession,
     deletePendingPairing,
     getPendingPairing,
-    async getPushNotificationSubscription(clientSessionId) {
-      const row = await db
-        .prepare(
-          `SELECT client_session_id AS clientSessionId,
-                  expo_push_token AS expoPushToken,
-                  platform,
-                  turn_terminal_enabled AS turnTerminal,
-                  action_required_enabled AS actionRequired,
-                  include_remaining_usage_enabled AS includeRemainingUsage
-           FROM push_notification_subscriptions
-           WHERE client_session_id = ?`,
-        )
-        .get(clientSessionId);
-      return row ? pushNotificationSubscriptionFromRow(row) : undefined;
-    },
     async getValidSession(tokenHash) {
       const row = await db
         .prepare(
@@ -329,38 +275,8 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
         secureSession: decodeSecureSession(row),
       };
     },
-    async listActivePushNotificationSubscriptions() {
-      const rows = await db
-        .prepare(
-          `SELECT subscriptions.client_session_id AS clientSessionId,
-                  subscriptions.expo_push_token AS expoPushToken,
-                  subscriptions.platform,
-                  subscriptions.turn_terminal_enabled AS turnTerminal,
-                  subscriptions.action_required_enabled AS actionRequired,
-                  subscriptions.include_remaining_usage_enabled AS includeRemainingUsage
-           FROM push_notification_subscriptions AS subscriptions
-           INNER JOIN pairing_sessions AS sessions
-             ON sessions.client_session_id = subscriptions.client_session_id
-           GROUP BY subscriptions.client_session_id`,
-        )
-        .all();
-      return resultRows(rows).flatMap((row) => {
-        const subscription = pushNotificationSubscriptionFromRow(row);
-        return subscription ? [subscription] : [];
-      });
-    },
     async pruneExpiredPendingPairings(now) {
       await db.prepare("DELETE FROM pending_pairings WHERE expires_at <= ?").run(now);
-      await db
-        .prepare(
-          `DELETE FROM push_notification_subscriptions
-           WHERE NOT EXISTS (
-             SELECT 1
-             FROM pairing_sessions
-             WHERE pairing_sessions.client_session_id = push_notification_subscriptions.client_session_id
-           )`,
-        )
-        .run();
     },
     async rotateSession(oldTokenHash, newTokenHash, session) {
       const now = Date.now();
@@ -438,40 +354,6 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
           tokenHash,
         );
     },
-    async upsertPushNotificationSubscription(subscription) {
-      const now = Date.now();
-      await db
-        .prepare(
-          `INSERT INTO push_notification_subscriptions (
-             client_session_id,
-             expo_push_token,
-             platform,
-             turn_terminal_enabled,
-             action_required_enabled,
-             include_remaining_usage_enabled,
-             created_at,
-             updated_at
-           )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(client_session_id) DO UPDATE SET
-             expo_push_token = excluded.expo_push_token,
-             platform = excluded.platform,
-             turn_terminal_enabled = excluded.turn_terminal_enabled,
-             action_required_enabled = excluded.action_required_enabled,
-             include_remaining_usage_enabled = excluded.include_remaining_usage_enabled,
-             updated_at = excluded.updated_at`,
-        )
-        .run(
-          subscription.clientSessionId,
-          subscription.expoPushToken,
-          subscription.platform,
-          subscription.turnTerminal ? 1 : 0,
-          subscription.actionRequired ? 1 : 0,
-          subscription.includeRemainingUsage ? 1 : 0,
-          now,
-          now,
-        );
-    },
   };
 
   async function ensurePairingSessionColumns() {
@@ -502,16 +384,6 @@ export async function createTursoPairingSessionStore(path: string): Promise<Pair
     const pendingColumns = new Set(resultRows(pendingRows).map((row) => String(row.name)));
     if (!pendingColumns.has("client_session_id")) {
       await db.exec("ALTER TABLE pending_pairings ADD COLUMN client_session_id TEXT");
-    }
-  }
-
-  async function ensurePushNotificationSubscriptionColumns() {
-    const rows = await db.prepare("PRAGMA table_info(push_notification_subscriptions)").all();
-    const columns = new Set(resultRows(rows).map((row) => String(row.name)));
-    if (!columns.has("include_remaining_usage_enabled")) {
-      await db.exec(
-        "ALTER TABLE push_notification_subscriptions ADD COLUMN include_remaining_usage_enabled INTEGER NOT NULL DEFAULT 0",
-      );
     }
   }
 }
@@ -547,28 +419,6 @@ function decodeSecureSession(row: Record<string, unknown>) {
     mobileToServerKey: toByteArray(row.mobileToServerKey),
     nextServerCounter: Number(row.nextServerCounter),
     serverToMobileKey: toByteArray(row.serverToMobileKey),
-  };
-}
-
-function pushNotificationSubscriptionFromRow(
-  row: Record<string, unknown>,
-): PushNotificationSubscription | undefined {
-  const platform = row.platform;
-  if (
-    typeof row.clientSessionId !== "string" ||
-    typeof row.expoPushToken !== "string" ||
-    (platform !== "android" && platform !== "ios")
-  ) {
-    return undefined;
-  }
-
-  return {
-    actionRequired: Number(row.actionRequired) === 1,
-    clientSessionId: row.clientSessionId,
-    expoPushToken: row.expoPushToken,
-    includeRemainingUsage: Number(row.includeRemainingUsage) === 1,
-    platform,
-    turnTerminal: Number(row.turnTerminal) === 1,
   };
 }
 

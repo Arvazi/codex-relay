@@ -18,7 +18,6 @@ import {
   ListWorkspaceFilesResponseSchema,
   ListWorkspaceDirectoriesResponseSchema,
   PairResponseSchema,
-  PushNotificationSettingsResponseSchema,
   QueuedThreadInputActionResponseSchema,
   RateLimitsResponseSchema,
   RenameThreadRequestSchema,
@@ -33,7 +32,6 @@ import {
   ThreadDetailResponseSchema,
   ThreadGoalResponseSchema,
   ThreadMessageDetailResponseSchema,
-  RegisterPushNotificationRequestSchema,
   UpdateThreadGoalRequestSchema,
   UpdateWorkspaceFileContentRequestSchema,
   UpdateRuntimePreferencesRequestSchema,
@@ -58,7 +56,6 @@ import {
   type ListThreadsResponse,
   type ListWorkspaceFilesResponse,
   type ListWorkspaceDirectoriesResponse,
-  type PushNotificationSettingsResponse,
   type QueuedThreadInputActionResponse,
   type RateLimitsResponse,
   type RenameThreadRequest,
@@ -67,7 +64,6 @@ import {
   type ResolveApprovalResponse,
   type RewindThreadRequest,
   type RuntimePreferencesResponse,
-  type RegisterPushNotificationRequest,
   type RunThreadRequest,
   type RunThreadResponse,
   type StatusResponse,
@@ -568,35 +564,6 @@ export async function updateRuntimePreferences(
       body: encryptRequestPayload(UpdateRuntimePreferencesRequestSchema.parse(body)),
     },
     RuntimePreferencesResponseSchema.parse,
-  );
-}
-
-export async function getPushNotificationSettings(): Promise<PushNotificationSettingsResponse> {
-  return request(
-    apiPaths.pushNotifications,
-    undefined,
-    PushNotificationSettingsResponseSchema.parse,
-  );
-}
-
-export async function registerPushNotifications(
-  body: RegisterPushNotificationRequest,
-): Promise<PushNotificationSettingsResponse> {
-  return request(
-    apiPaths.pushNotifications,
-    {
-      body: encryptRequestPayload(RegisterPushNotificationRequestSchema.parse(body)),
-      method: "PUT",
-    },
-    PushNotificationSettingsResponseSchema.parse,
-  );
-}
-
-export async function unregisterPushNotifications(): Promise<PushNotificationSettingsResponse> {
-  return request(
-    apiPaths.pushNotifications,
-    { method: "DELETE" },
-    PushNotificationSettingsResponseSchema.parse,
   );
 }
 
