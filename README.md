@@ -182,17 +182,17 @@ release pull request and publishes it after that pull request is merged. See
 
 ## Configuration
 
-The relay listens on `0.0.0.0:8790` by default.
+The relay listens on `127.0.0.1:8790` by default. Tailscale (userspace networking) and the public tunnel reach it through loopback; set `HOST=0.0.0.0` to let phones on the same Wi-Fi connect directly.
 
-| Variable                      | Purpose                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| `PORT`                        | Server port. Defaults to `8790`.                                    |
-| `HOST`                        | Listen host. Defaults to `0.0.0.0`.                                 |
-| `CODEX_RELAY_WORKSPACE_PATH`  | Workspace path Codex should use. Defaults to the current directory. |
-| `CODEX_RELAY_AUTH_DB_PATH`    | Pairing and session database path.                                  |
-| `CODEX_RELAY_APP_SERVER_MODE` | `socket` for shared terminal/mobile sessions; defaults to `stdio`.  |
-| `CODEX_BIN`                   | Codex CLI executable path.                                          |
-| `CODEX_HOME`                  | Codex home directory for reading local session metadata.            |
+| Variable                      | Purpose                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `PORT`                        | Server port. Defaults to `8790`.                                                           |
+| `HOST`                        | Listen host. Defaults to `127.0.0.1`; `0.0.0.0` also accepts devices on the local network. |
+| `CODEX_RELAY_WORKSPACE_PATH`  | Workspace path Codex should use. Defaults to the current directory.                        |
+| `CODEX_RELAY_AUTH_DB_PATH`    | Pairing and session database path.                                                         |
+| `CODEX_RELAY_APP_SERVER_MODE` | `socket` for shared terminal/mobile sessions; defaults to `stdio`.                         |
+| `CODEX_BIN`                   | Codex CLI executable path.                                                                 |
+| `CODEX_HOME`                  | Codex home directory for reading local session metadata.                                   |
 
 Background mode writes runtime files under `.codex-relay/` in the current
 workspace, including server logs, process state, and pairing data.
